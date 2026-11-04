@@ -35,7 +35,11 @@ def _user(user_id: uuid.UUID | None = None) -> User:
     return User(id=user_id or uuid.uuid4(), email="user@example.com")
 
 
-def _character(*, status: str = CharacterStatusType.ACTIVE.value) -> Character:
+def _character(
+    *,
+    status: str = CharacterStatusType.ACTIVE.value,
+    creator_id: uuid.UUID | None = None,
+) -> Character:
     return Character(
         id=uuid.uuid4(),
         name="Luna",
@@ -49,7 +53,7 @@ def _character(*, status: str = CharacterStatusType.ACTIVE.value) -> Character:
         voice_source_type="system",
         status=status,
         visibility=VisibilityType.PUBLIC.value,
-        creator_id=uuid.uuid4(),
+        creator_id=creator_id if creator_id is not None else uuid.uuid4(),
         identifier=None,
         interaction_count=0,
     )
@@ -120,6 +124,32 @@ async def test_prepare_regen_rejects_unpublished_character() -> None:
     assert exc.value.status_code == 409
     assert exc.value.code == "resource_conflict"
     candidate_repo.get_max_candidate_no.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_prepare_regen_allows_creator_of_unpublished_character() -> None:
+    current_user = _user()
+    character = _character(
+        status=CharacterStatusType.UNPUBLISHED.value,
+        creator_id=current_user.id,
+    )
+    chat = _chat(user_id=current_user.id, character_id=character.id)
+    assistant_turn = _turn(chat_id=chat.id, author_type=AuthorType.CHARACTER.value)
+    turn_repo = SimpleNamespace(get_for_update=_AwaitableSpy(assistant_turn))
+    chat_repo = SimpleNamespace(get_for_update=_AwaitableSpy(chat))
+    character_repo = SimpleNamespace(get_by_id=_AwaitableSpy(character))
+    candidate_repo = SimpleNamespace(get_max_candidate_no=_AwaitableSpy(10))
+    service = _service(
+        chat_repo=chat_repo,
+        turn_repo=turn_repo,
+        character_repo=character_repo,
+        candidate_repo=candidate_repo,
+    )
+
+    with pytest.raises(APIError) as exc:
+        await service.prepare_regen(current_user=current_user, assistant_turn_id=assistant_turn.id)
+
+    assert exc.value.code == "turn_candidate_limit_reached"
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.core.exceptions import APIError
 from src.db.models import CharacterStatusType
 from src.realtime.session import manager as manager_module
 from src.realtime.session.manager import RealtimeSessionManager
@@ -324,3 +325,67 @@ async def test_create_session_uses_preallocated_id_and_call_scoped_metrics_sink(
     assert session.session_id == "rt_0123456789abcdef"
     assert session.metrics_sink is metrics_sink
     await manager.close_session(session.session_id)
+
+
+@pytest.mark.asyncio
+async def test_create_session_allows_creator_of_unpublished_character(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Session:
+        def __init__(self, **kwargs: object) -> None:
+            self.session_id = kwargs["session_id"]
+
+        async def start(self) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+    _patch_runtime(monkeypatch, _Session)
+    manager = RealtimeSessionManager(
+        dialog_service=object(),
+        turn_service=object(),
+        voice_runtime=object(),
+        ice_config_service=_FakeIceConfigService(),
+        vad_model=_FakeVADModel(),
+        settings=_fake_settings(),
+    )
+    current_user, chat, character = _build_inputs()
+    character.status = CharacterStatusType.UNPUBLISHED.value
+    character.creator_id = current_user.id
+
+    session, _ = await manager.create_session(
+        current_user=current_user,
+        chat=chat,
+        character=character,
+        offer={"type": "offer", "sdp": "fake-offer"},
+    )
+
+    assert session.session_id.startswith("rt_")
+    await manager.close_session(session.session_id)
+
+
+@pytest.mark.asyncio
+async def test_create_session_rejects_non_creator_of_unpublished_character() -> None:
+    manager = RealtimeSessionManager(
+        dialog_service=object(),
+        turn_service=object(),
+        voice_runtime=object(),
+        ice_config_service=_FakeIceConfigService(),
+        vad_model=_FakeVADModel(),
+        settings=_fake_settings(),
+    )
+    current_user, chat, character = _build_inputs()
+    character.status = CharacterStatusType.UNPUBLISHED.value
+    character.creator_id = uuid.uuid4()
+
+    with pytest.raises(APIError) as exc:
+        await manager.create_session(
+            current_user=current_user,
+            chat=chat,
+            character=character,
+            offer={"type": "offer", "sdp": "fake-offer"},
+        )
+
+    assert exc.value.status_code == 409
+    assert exc.value.code == "resource_conflict"

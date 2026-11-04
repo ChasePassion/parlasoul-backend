@@ -9,7 +9,6 @@ from src.core.exceptions import APIError
 from src.db.models import (
     AuthorType,
     Candidate,
-    CharacterStatusType,
     ChatOriginType,
     Turn,
     TurnState,
@@ -20,6 +19,7 @@ from src.repositories.candidate_repository import CandidateRepository
 from src.repositories.character_repository import CharacterRepository
 from src.repositories.chat_repository import ChatRepository
 from src.repositories.turn_repository import TurnRepository
+from src.services.character_access_service import assert_character_chat_writable
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +77,7 @@ class RealtimeTurnService:
                 raise APIError(403, "forbidden", "authorization failed: chat is not accessible")
             if chat.character_id != character_id:
                 raise APIError(409, "resource_conflict", "resource conflict: chat and character mismatch")
-            if getattr(character, "status", CharacterStatusType.ACTIVE.value) != CharacterStatusType.ACTIVE.value:
-                raise APIError(409, "resource_conflict", "resource conflict: character is unpublished")
+            assert_character_chat_writable(character, user_id=user_id)
 
             history_leaf_turn = await _resolve_leaf_from_turn(
                 turn_repo,

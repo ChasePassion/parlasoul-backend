@@ -8,7 +8,10 @@ import pytest
 from src.core.exceptions import APIError
 from src.db.models import Character, CharacterStatusType, User, VisibilityType
 from src.repositories.character_repository import CharacterRepository
-from src.services.character_access_service import CharacterAccessService
+from src.services.character_access_service import (
+    CharacterAccessService,
+    assert_character_chat_writable,
+)
 
 
 def _user(user_id: uuid.UUID | None = None) -> User:
@@ -93,3 +96,32 @@ async def test_unpublished_character_forbidden_for_non_owner() -> None:
 
     assert exc.value.status_code == 403
     assert exc.value.code == "character_private_forbidden"
+
+
+def test_chat_writable_allows_active_character_for_non_creator() -> None:
+    character = _character(creator_id=uuid.uuid4())
+
+    assert_character_chat_writable(character, user_id=uuid.uuid4())
+
+
+def test_chat_writable_allows_creator_of_unpublished_character() -> None:
+    creator_id = uuid.uuid4()
+    character = _character(
+        creator_id=creator_id,
+        status=CharacterStatusType.UNPUBLISHED.value,
+    )
+
+    assert_character_chat_writable(character, user_id=creator_id)
+
+
+def test_chat_writable_rejects_non_creator_of_unpublished_character() -> None:
+    character = _character(
+        creator_id=uuid.uuid4(),
+        status=CharacterStatusType.UNPUBLISHED.value,
+    )
+
+    with pytest.raises(APIError) as exc:
+        assert_character_chat_writable(character, user_id=uuid.uuid4())
+
+    assert exc.value.status_code == 409
+    assert exc.value.code == "resource_conflict"
