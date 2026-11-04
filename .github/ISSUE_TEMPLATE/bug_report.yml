@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible defect in the backend
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include secrets, tokens, customer data, or production hostnames.
+        For security issues use private vulnerability reporting instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Describe the observed behavior and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps, request payloads, or a failing test.
+      placeholder: |
+        1. Start the service with ...
+        2. Call POST /v1/... with ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or version
+      description: Output of `git rev-parse --short HEAD`.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste structured logs or stack traces with secrets removed.
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, PostgreSQL version, Milvus endpoint type.
+    validations:
+      required: false

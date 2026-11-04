@@ -1,0 +1,40 @@
+services:
+  nginx:
+    ports:
+      - "80:80"
+      - "443:443"
+
+  coturn:
+    image: coturn/coturn:4.6.3
+    user: "0:0"
+    network_mode: host
+    env_file:
+      - ${PARLASOUL_ROOT:-/srv/parlasoul}/env/backend.env
+    command:
+      - /bin/sh
+      - -c
+      - >
+        turnserver
+        --no-cli
+        --no-multicast-peers
+        --fingerprint
+        --listening-ip=$${REALTIME_TURN_RELAY_IP}
+        --relay-ip=$${REALTIME_TURN_RELAY_IP}
+        --listening-port=3478
+        --tls-listening-port=5349
+        --min-port=49160
+        --max-port=49200
+        --realm=$${REALTIME_TURN_REALM}
+        --use-auth-secret
+        --static-auth-secret=$${REALTIME_TURN_SECRET}
+        --external-ip=$${REALTIME_TURN_EXTERNAL_IP}
+        --cert=/etc/letsencrypt/live/example.com/fullchain.pem
+        --pkey=/etc/letsencrypt/live/example.com/privkey.pem
+        --proc-user=nobody
+        --proc-group=nogroup
+    volumes:
+      - type: bind
+        source: /etc/letsencrypt
+        target: /etc/letsencrypt
+        read_only: true
+    restart: unless-stopped

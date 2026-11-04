@@ -1,0 +1,159 @@
+name: deploy-backend-production
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+on:
+  workflow_run:
+    workflows:
+      - publish-backend-image
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      image_sha:
+        description: "Required for manual dispatch; full 40-character image commit SHA"
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-backend-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://parlasoul.com
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_ROOT: ${{ secrets.DEPLOY_ROOT }}
+      DEPLOY_HOST_KEY_FINGERPRINT: ${{ secrets.DEPLOY_HOST_KEY_FINGERPRINT }}
+      IMAGE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.image_sha }}
+    steps:
+      - name: Normalize deployment settings
+        run: |
+          set -euo pipefail
+
+          sanitize() {
+            printf '%s' "$1" | tr -d '\r' | sed $'1s/^\xEF\xBB\xBF//'
+          }
+
+          normalized_sha="$(sanitize "${IMAGE_SHA}")"
+          normalized_sha="${normalized_sha#sha-}"
+
+          {
+            echo "DEPLOY_HOST=$(sanitize "${DEPLOY_HOST}")"
+            echo "DEPLOY_USER=$(sanitize "${DEPLOY_USER}")"
+            echo "DEPLOY_ROOT=$(sanitize "${DEPLOY_ROOT}")"
+            echo "DEPLOY_HOST_KEY_FINGERPRINT=$(sanitize "${DEPLOY_HOST_KEY_FINGERPRINT}")"
+            echo "IMAGE_SHA=${normalized_sha}"
+          } >> "$GITHUB_ENV"
+
+          echo "IMAGE_TAG=sha-${normalized_sha:0:7}" >> "$GITHUB_ENV"
+
+      - name: Validate deployment inputs
+        run: |
+          set -euo pipefail
+          for key in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_ROOT DEPLOY_HOST_KEY_FINGERPRINT; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing required production secret: ${key}"
+              exit 1
+            fi
+          done
+
+          if [ -z "${IMAGE_SHA:-}" ]; then
+            echo "::error::IMAGE_SHA is empty"
+            exit 1
+          fi
+
+          if ! printf '%s' "${IMAGE_SHA}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::IMAGE_SHA must be a full 40-character commit SHA"
+            exit 1
+          fi
+
+      - name: Install SSH client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openssh-client
+
+      - name: Configure SSH key
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "${DEPLOY_SSH_KEY}" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          ssh-keygen -l -f "$HOME/.ssh/deploy_key" > /dev/null && echo "SSH key valid"
+
+      - name: Pin production host key
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          ssh-keyscan -t ed25519 "$DEPLOY_HOST" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -lf "$HOME/.ssh/known_hosts" | grep -F "$DEPLOY_HOST_KEY_FINGERPRINT"
+
+      - name: Deploy backend
+        run: |
+          set -euo pipefail
+          export BACKEND_IMAGE="ghcr.io/chasepassion/parlasoul-backend:${IMAGE_TAG}"
+
+          ssh -i "$HOME/.ssh/deploy_key" \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=40 \
+            "$DEPLOY_USER@$DEPLOY_HOST" /bin/bash <<EOF
+          set -euo pipefail
+          export BACKEND_IMAGE="${BACKEND_IMAGE}"
+          cd "${DEPLOY_ROOT}"
+
+          for attempt in \$(seq 1 6); do
+            if docker pull "${BACKEND_IMAGE}"; then
+              break
+            fi
+            if [ "\${attempt}" -eq 6 ]; then
+              echo "Failed to pull backend image after \${attempt} attempts" >&2
+              exit 1
+            fi
+            delay=\$((attempt * 10))
+            echo "Image pull attempt \${attempt}/6 failed, retrying in \${delay}s..."
+            sleep "\${delay}"
+          done
+          BACKEND_IMAGE="${BACKEND_IMAGE}" docker compose -f compose.yaml -f compose.production.yaml run --rm -T migrate </dev/null
+          BACKEND_IMAGE="${BACKEND_IMAGE}" docker compose -f compose.yaml -f compose.production.yaml up -d --no-deps --force-recreate backend
+          docker compose -f compose.yaml -f compose.production.yaml restart nginx
+
+          deployed_revision="\$(docker inspect parlasoul-backend-1 --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+          if [ "\${deployed_revision}" != "${IMAGE_SHA}" ]; then
+            echo "::warning::deployed revision '\${deployed_revision}' does not match IMAGE_SHA '${IMAGE_SHA}' (continuing; backend health check below is the source of truth for deploy success)"
+          fi
+
+          sed -i "s|^BACKEND_IMAGE=.*|BACKEND_IMAGE=${BACKEND_IMAGE}|" "${DEPLOY_ROOT}/.env"
+
+          sleep 5
+
+          for attempt in \$(seq 1 40); do
+            if docker exec parlasoul-backend-1 curl -fsS -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/v1/discover/config | grep -q "200"; then
+              exit 0
+            fi
+            sleep 3
+          done
+
+          echo "Backend health check did not pass in time" >&2
+          exit 1
+          EOF

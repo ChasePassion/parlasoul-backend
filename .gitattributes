@@ -1,0 +1,21 @@
+# Normalize text files
+* text=auto
+
+# Enforce UTF-8 for source and config files
+*.py   text working-tree-encoding=UTF-8
+*.md   text working-tree-encoding=UTF-8
+*.txt  text working-tree-encoding=UTF-8
+*.json text working-tree-encoding=UTF-8
+*.yml  text working-tree-encoding=UTF-8
+*.yaml text working-tree-encoding=UTF-8
+*.toml text working-tree-encoding=UTF-8
+*.ini  text working-tree-encoding=UTF-8
+*.cfg  text working-tree-encoding=UTF-8
+*.env  text working-tree-encoding=UTF-8
+*.sh   text working-tree-encoding=UTF-8
+*.ps1  text working-tree-encoding=UTF-8
+*.sql  text working-tree-encoding=UTF-8
+
+.gitignore    text working-tree-encoding=UTF-8
+.gitattributes text working-tree-encoding=UTF-8
+.editorconfig text working-tree-encoding=UTF-8

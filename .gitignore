@@ -1,0 +1,382 @@
+# AI Memory System - Git Ignore File
+# This file prevents sensitive information and unnecessary files from being committed to version control
+
+# =============================================================================
+# SECURITY CRITICAL - API KEYS AND CONFIGURATIONS
+# =============================================================================
+#API keys (CRITICAL SECURITY RISK)
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# =============================================================================
+# PYTHON SPECIFIC
+# =============================================================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+static
+!static/
+static/*
+!static/media/
+static/media/*
+!static/media/voices/
+static/media/voices/*
+!static/media/voices/preview/
+static/media/voices/preview/*
+!static/media/voices/preview/minimax/
+!static/media/voices/preview/minimax/*.mp3
+!static/media/voices/preview/dashscope/
+!static/media/voices/preview/dashscope/*.mp3
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# =============================================================================
+# IDE AND EDITOR FILES
+# =============================================================================
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+
+# Eclipse
+.project
+.classpath
+.cproject
+.settings/
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# =============================================================================
+# OPERATING SYSTEM FILES
+# =============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# DATABASE AND DATA FILES
+# =============================================================================
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.mdb
+*.accdb
+
+# Data files
+data/
+datasets/
+*.csv
+*.json
+*.xml
+*.yaml
+*.yml
+!requirements.txt
+!*.yaml.example
+!*.yml.example
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
+!.github/workflows/*.yaml
+!.github/ISSUE_TEMPLATE/
+!.github/ISSUE_TEMPLATE/*.yml
+!.github/ISSUE_TEMPLATE/*.yaml
+!docs/api/*.yaml
+!docs/api/*.yml
+!compose.yaml
+!compose.production.yaml
+
+# Vector database data
+milvus_data/
+vector_data/
+embeddings/
+
+# =============================================================================
+# LOGS AND TEMPORARY FILES
+# =============================================================================
+# Log files
+*.log
+logs/
+log/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+
+# =============================================================================
+# DEMO AND DEVELOPMENT SPECIFIC
+# =============================================================================
+# Demo specific files
+demo_uploads/
+demo_data/
+demo_logs/
+
+# Gradio temporary files
+gradio_cached_examples/
+gradio_upload/
+
+# Development artifacts
+dev/
+!docs/dev/
+!docs/dev/**
+development/
+sandbox/
+
+# =============================================================================
+# BACKUP AND ARCHIVE FILES
+# =============================================================================
+# Backup files
+*.backup
+*.bak
+*.old
+*.orig
+*.save
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# =============================================================================
+# SECURITY AND ENCRYPTION
+# =============================================================================
+# Certificate files
+*.crt
+*.cer
+*.der
+*.p7b
+*.p7c
+
+# Private keys (already covered above but emphasized for security)
+*.key
+*.pem
+*.p12
+*.pfx
+
+# =============================================================================
+# PROJECT SPECIFIC
+# =============================================================================
+# Memory system specific
+memory_data/
+user_data/
+chat_logs/
+conversation_history/
+
+# Milvus specific
+milvus_logs/
+milvus_data/
+
+# AI model cache
+model_cache/
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Evaluation harness (phase18): run results and any local production-derived
+# dataset material must never enter Git. Only explicit smoke/gold fixtures
+# under tests/ are committed.
+data/eval/results/
+data/eval/datasets/
+
+# The generic "datasets/" data-file rule above must not swallow the
+# evaluation package source.
+!src/evaluation/datasets/
+
+# =============================================================================
+# INTERNAL / NON-PUBLIC MATERIAL
+# =============================================================================
+# Internal engineering notes, agent instructions, implementation plans and
+# production runbooks stay on the maintainer's machine and are never published.
+.agent/
+AGENTS.md
+docs/dev/
+docs/release/
+docs/realtime-voice-provider-migration.md
+
+# Uploaded media is runtime data, never source.
+static/uploads/

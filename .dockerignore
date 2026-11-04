@@ -1,0 +1,17 @@
+.git
+.github
+.pytest_cache
+.ruff_cache
+.hypothesis
+.vscode
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.production
+tmp
+tests
+docs
+verification.log
+.codex-*

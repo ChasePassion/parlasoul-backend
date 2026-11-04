@@ -1,0 +1,163 @@
+name: parlasoul
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?POSTGRES_ADMIN_PASSWORD is required}
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: --data-checksums
+      PARLASOUL_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}
+      PARLASOUL_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:?POSTGRES_MIGRATOR_PASSWORD is required}
+      TZ: UTC
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - max_connections=50
+      - -c
+      - wal_compression=on
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+    volumes:
+      - type: bind
+        source: ${PARLASOUL_ROOT:-/srv/parlasoul}/data/postgres
+        target: /var/lib/postgresql/data
+      - type: bind
+        source: ${PARLASOUL_ROOT:-/srv/parlasoul}/config/postgres-init
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - parlasoul
+
+  redis:
+    image: redis:7.4-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60"
+      - "1"
+    volumes:
+      - type: bind
+        source: ${PARLASOUL_ROOT:-/srv/parlasoul}/data/redis
+        target: /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - parlasoul
+
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/chasepassion/parlasoul-backend:latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ${PARLASOUL_ROOT:-/srv/parlasoul}/env/backend.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - python
+      - -m
+      - uvicorn
+      - src.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    volumes:
+      - type: bind
+        source: ${PARLASOUL_ROOT:-/srv/parlasoul}/data/uploads
+        target: /app/static/uploads
+      - type: bind
+        source: ${PARLASOUL_ROOT:-/srv/parlasoul}/logs/backend
+        target: /app/logs
+      - type: bind
+        source: ${PARLASOUL_ROOT:-/srv/parlasoul}/config
+        target: /app/config
+    restart: unless-stopped
+    networks:
+      - parlasoul
+
+  migrate:
+    image: ${BACKEND_IMAGE:-ghcr.io/chasepassion/parlasoul-backend:latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ${PARLASOUL_ROOT:-/srv/parlasoul}/env/backend.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://parlasoul_migrator:${POSTGRES_MIGRATOR_PASSWORD:?POSTGRES_MIGRATOR_PASSWORD is required}@postgres:5432/parlasoul
+    command:
+      - python
+      - -m
+      - alembic
+      - upgrade
+      - head
+    networks:
+      - parlasoul
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/chasepassion/parlasoul-frontend:latest}
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - ${PARLASOUL_ROOT:-/srv/parlasoul}/env/frontend.env
+    restart: unless-stopped
+    networks:
+      - parlasoul
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - backend
+      - frontend
+    volumes:
+      - type: bind
+        source: ${PARLASOUL_ROOT:-/srv/parlasoul}/nginx/default.conf
+        target: /etc/nginx/conf.d/default.conf
+        read_only: true
+      - type: bind
+        source: ${PARLASOUL_ROOT:-/srv/parlasoul}/nginx/rate-limit.conf
+        target: /etc/nginx/conf.d/rate-limit.conf
+        read_only: true
+      - type: bind
+        source: ${PARLASOUL_ROOT:-/srv/parlasoul}/data/certbot-webroot
+        target: /var/www/certbot
+        read_only: true
+      - type: bind
+        source: ${PARLASOUL_ROOT:-/srv/parlasoul}/logs/nginx
+        target: /var/log/nginx
+      - type: bind
+        source: /etc/letsencrypt
+        target: /etc/letsencrypt
+        read_only: true
+    restart: unless-stopped
+    networks:
+      - parlasoul
+
+networks:
+  parlasoul:
+    driver: bridge

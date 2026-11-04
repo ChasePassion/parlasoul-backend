@@ -1,0 +1,52 @@
+name: Feature request
+description: Propose a capability or design change
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or operator problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior, API shape, or data model you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches and why you rejected them.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Chat / turns
+        - Real-time voice
+        - Characters / voices
+        - Memory
+        - Learning / saved items
+        - Growth
+        - Billing
+        - Media / uploads
+        - Evaluation
+        - Infrastructure
+    validations:
+      required: true
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - label: Changes the database schema
+        - label: Changes a public API contract
+        - label: Changes authentication or authorization
+        - label: Changes billing or entitlement behavior

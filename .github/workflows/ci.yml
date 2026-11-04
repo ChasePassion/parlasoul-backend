@@ -1,0 +1,111 @@
+name: ci
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        run: |
+          python -m ruff check \
+            src/bootstrap \
+            src/jobs \
+            src/core/config.py \
+            src/core/uow.py \
+            src/core/error_codes.py \
+            src/main.py \
+            src/api/main.py \
+            src/schemas/common.py \
+            src/schemas/sse.py \
+            tools \
+            alembic
+
+      - name: Ruff correctness gate
+        run: python -m ruff check --select F src tests tools alembic
+
+      - name: Architecture guard
+        run: python tools/arch_guard.py
+
+      - name: Compile check
+        run: python -m compileall src tests
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/ci
+      SECRET_KEY: ci-secret-key
+      SMTP_HOST: smtp.example.com
+      SMTP_USER: ci-user
+      SMTP_PASSWORD: ci-password
+      MILVUS_URL: http://localhost:19530
+      SILICONFLOW_API_KEY: ci-embedding-key
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Alembic migration graph check
+        run: |
+          set -euo pipefail
+          heads_count="$(python -m alembic heads | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')"
+          if [ "${heads_count}" -ne 1 ]; then
+            echo "::error::Expected exactly one Alembic head, found ${heads_count}"
+            python -m alembic heads
+            exit 1
+          fi
+          python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; script = ScriptDirectory.from_config(Config('alembic.ini')); revisions = list(script.walk_revisions()); assert revisions, 'No Alembic revisions found'; [revision.module for revision in revisions]; print(f'Validated {len(revisions)} Alembic revisions')"
+
+      - name: Unit and integration tests
+        run: python -m pytest -q
