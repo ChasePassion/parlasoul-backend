@@ -20,7 +20,6 @@ from src.db.models import (
     AuthorType,
     Candidate,
     Character,
-    CharacterStatusType,
     ChatOriginType,
     ChatState,
     Turn,
@@ -44,6 +43,7 @@ from src.repositories.user_settings_repository import UserSettingsRepository
 from src.schemas.chat import ChatImageRef
 from src.schemas.learning import FeedbackCardPayload, ReplyCardPayload
 from src.services.bg_tasks import spawn_bg_task
+from src.services.character_access_service import assert_character_chat_writable
 from src.services.character_llm_route_service import ResolvedCharacterLLMRoute
 from src.services.character_llm_service import CharacterLLMService
 from src.services.chat_generation_service import ChatGenerationContext, build_generation_messages
@@ -147,16 +147,6 @@ def _is_greeting_turn(turn: Turn) -> bool:
         and turn.parent_turn_id is None
         and turn.parent_candidate_id is None
     )
-
-
-def _assert_character_chat_writable(character: Character) -> None:
-    status = getattr(character, "status", CharacterStatusType.ACTIVE.value)
-    if status != CharacterStatusType.ACTIVE.value:
-        raise APIError(
-            status_code=409,
-            code="resource_conflict",
-            message=(f"resource conflict: character is unpublished; character_id={character.id}"),
-        )
 
 
 @dataclass(frozen=True)
@@ -737,7 +727,7 @@ class TurnService:
                     code="character_not_found",
                     message=f"resource not found: character does not exist; character_id={chat.character_id}",
                 )
-            _assert_character_chat_writable(character)
+            assert_character_chat_writable(character, user_id=current_user.id)
             resolved_llm_route = await self._character_llm_service.resolve_runtime_route(character)
 
             max_no = await self._candidate_repo.get_max_candidate_no(turn_id=assistant_turn.id)
@@ -1588,7 +1578,7 @@ class TurnService:
                     code="character_not_found",
                     message=f"resource not found: character does not exist; character_id={chat.character_id}",
                 )
-            _assert_character_chat_writable(character)
+            assert_character_chat_writable(character, user_id=current_user.id)
 
             if source_turn.primary_candidate_id:
                 existing_child = await self._turn_repo.get_child_by_parent_candidate(
@@ -2366,7 +2356,7 @@ class TurnService:
                     code="character_not_found",
                     message=f"resource not found: character does not exist; character_id={chat.character_id}",
                 )
-            _assert_character_chat_writable(character)
+            assert_character_chat_writable(character, user_id=current_user.id)
             resolved_llm_route = await self._character_llm_service.resolve_runtime_route(character)
 
             max_no = await self._candidate_repo.get_max_candidate_no(turn_id=user_turn.id)

@@ -67,6 +67,7 @@ from src.schemas.chat import (
 from src.schemas.learning import CandidateExtra
 from src.schemas.media import MediaUploadKind
 from src.services.bg_tasks import spawn_bg_task
+from src.services.character_access_service import assert_character_chat_writable
 from src.services.character_llm_route_service import ResolvedCharacterLLMRoute
 from src.services.character_llm_service import CharacterLLMService
 from src.services.chat_generation_service import ChatGenerationContext, build_generation_messages
@@ -480,14 +481,6 @@ def _assert_character_access(character: Character, user: User) -> None:
         )
 
 
-def _assert_character_chat_writable(character: Character) -> None:
-    status = getattr(character, "status", CharacterStatusType.ACTIVE.value)
-    if status != CharacterStatusType.ACTIVE.value:
-        raise APIError(
-            status_code=409,
-            code="resource_conflict",
-            message=(f"resource conflict: character is unpublished; character_id={character.id}"),
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -747,7 +740,7 @@ class ChatService:
                     message=f"resource not found: character does not exist; character_id={character_id}",
                 )
             _assert_character_access(character, current_user)
-            _assert_character_chat_writable(character)
+            assert_character_chat_writable(character, user_id=current_user.id)
 
             chat = Chat(
                 user_id=current_user.id,
@@ -829,7 +822,7 @@ class ChatService:
                 message="invalid request: proactive message content cannot be empty",
             )
 
-        _assert_character_chat_writable(character)
+        assert_character_chat_writable(character, user_id=current_user.id)
         now = _now_utc()
 
         async with self._uow.transactional():
@@ -2019,7 +2012,7 @@ class ChatService:
                     code="character_not_found",
                     message=f"resource not found: character does not exist; character_id={chat.character_id}",
                 )
-            _assert_character_chat_writable(character)
+            assert_character_chat_writable(character, user_id=current_user.id)
             t_route = time.monotonic()
             resolved_llm_route = await self._character_llm_service.resolve_runtime_route(character)
             timing["prep_resolve_route"] = time.monotonic() - t_route

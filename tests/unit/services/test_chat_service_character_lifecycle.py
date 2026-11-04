@@ -4,7 +4,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -119,6 +119,36 @@ async def test_create_chat_rejects_unpublished_character() -> None:
 
     assert exc.value.status_code == 409
     assert exc.value.code == "resource_conflict"
+
+
+@pytest.mark.asyncio
+async def test_create_chat_allows_creator_of_unpublished_character() -> None:
+    current_user = _user()
+    character = _character(
+        creator_id=current_user.id,
+        status=CharacterStatusType.UNPUBLISHED.value,
+    )
+    chat_repo = SimpleNamespace(add=Mock())
+    turn_repo = SimpleNamespace(add=Mock())
+    candidate_repo = SimpleNamespace(add=Mock())
+    character_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=character))
+    service = _service(
+        chat_repo=chat_repo,
+        turn_repo=turn_repo,
+        candidate_repo=candidate_repo,
+        character_repo=character_repo,
+    )
+
+    result = await service.create_chat(
+        current_user=current_user,
+        character_id=character.id,
+        meta=None,
+    )
+
+    assert result.character.status == CharacterStatusType.UNPUBLISHED.value
+    chat_repo.add.assert_called_once()
+    turn_repo.add.assert_called_once()
+    candidate_repo.add.assert_called_once()
 
 
 @pytest.mark.asyncio

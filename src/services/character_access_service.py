@@ -61,3 +61,26 @@ class CharacterAccessService:
                 )
 
         return character
+
+
+def assert_character_chat_writable(character: Character, *, user_id: uuid.UUID) -> None:
+    """Reject new chat writes for unpublished characters except their creator.
+
+    Unpublishing withdraws a character from public use. The creator keeps full
+    read/write access to their own character, while every other user only keeps
+    read access to chats that already exist.
+    """
+
+    status = getattr(character, "status", CharacterStatusType.ACTIVE.value)
+    if status == CharacterStatusType.ACTIVE.value:
+        return
+
+    creator_id = getattr(character, "creator_id", None)
+    if creator_id is not None and creator_id == user_id:
+        return
+
+    raise APIError(
+        status_code=409,
+        code="resource_conflict",
+        message=(f"resource conflict: character is unpublished; character_id={character.id}"),
+    )
