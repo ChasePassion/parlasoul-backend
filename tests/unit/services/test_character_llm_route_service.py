@@ -95,12 +95,12 @@ async def test_resolve_runtime_route_uses_default_route_for_free_preset(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_resolve_runtime_route_uses_anthropic_for_flagship_preset(monkeypatch) -> None:
+async def test_resolve_runtime_route_uses_default_route_for_flagship_preset(monkeypatch) -> None:
     monkeypatch.setattr(llm_settings, "LLM_DEEPSEEK_API_KEY", "deepseek-key", raising=False)
     monkeypatch.setattr(
         llm_settings,
         "LLM_DEEPSEEK_MODEL_ID",
-        "deepseek-v4-pro",
+        "deepseek-v4.1-flash",
         raising=False,
     )
     _clear_llm_setting_cache()
@@ -110,9 +110,15 @@ async def test_resolve_runtime_route_uses_anthropic_for_flagship_preset(monkeypa
     service = CharacterLLMRouteService(registry=_build_registry())
 
     route = await service.resolve_runtime_route(character)
+    default_route = service.default_route()
 
     assert route.provider == "deepseek"
-    assert route.model == "deepseek-v4-pro"
+    assert route.model == "deepseek-v4.1-flash"
     assert route.sdk_kind == "openai_sdk"
-    assert route.source == "character_flagship"
+    assert route.source == "system_chat"
     assert route.api_key == "deepseek-key"
+    assert (route.provider, route.model, route.source) == (
+        default_route.provider,
+        default_route.model,
+        default_route.source,
+    )
