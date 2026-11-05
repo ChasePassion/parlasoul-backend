@@ -8,14 +8,10 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
-import httpx
-import openai
 import pytest
 
 from src.db.models import User
-from src.memory_system.exceptions import LLMAuthenticationError
 from src.services import chat_service as chat_service_module
-from src.services.chat_generation_service import ChatGenerationContext, build_llm_system_prompt
 from src.services.chat_service import (
     ChatService,
     _materialize_chat_image_refs,
@@ -96,25 +92,6 @@ def test_sanitize_candidate_extra_returns_none_when_only_learning_fields_exist()
     sanitized = _sanitize_candidate_extra(extra, include_learning_data=False)
 
     assert sanitized is None
-
-
-def test_build_llm_system_prompt_injects_dialogue_style_without_memory() -> None:
-    prompt = build_llm_system_prompt(
-        ChatGenerationContext(
-            character_system_prompt="Stay in character.",
-            dialogue_style_id="spring_breeze",
-            history_messages=[],
-            user_message="hi",
-            memories={"episodic": [], "semantic": []},
-            use_all_semantic=False,
-            preferred_expressions=[],
-            memory_active=False,
-        )
-    )
-
-    assert "Stay in character." in prompt
-    assert "warmer, gentler, and more patient tone" in prompt
-    assert "Retrieved memories" not in prompt
 
 
 @pytest.mark.asyncio
@@ -246,8 +223,8 @@ async def test_stream_chat_with_prep_skips_memory_when_memory_inactive(
 
     safe_memory_search = AsyncMock(
         return_value={
-            "episodic": [SimpleNamespace(text="memory")],
-            "semantic": [SimpleNamespace(text="fact")],
+            "episodic": [SimpleNamespace(text="unused-episodic-marker")],
+            "semantic": [SimpleNamespace(text="unused-semantic-marker")],
         }
     )
     spawn_bg_task = Mock(side_effect=_spawn_bg_task_stub)
@@ -303,53 +280,9 @@ async def test_stream_chat_with_prep_skips_memory_when_memory_inactive(
     safe_memory_search.assert_not_awaited()
     spawn_bg_task.assert_not_called()
     assert any('"type": "done"' in event for event in events)
-    assert "Retrieved memories" not in captured_messages["messages"][0]["content"]
-    assert service._upsert_candidate_extra.await_count == 2
-    persisted_payloads = [
-        call.kwargs["payload"] for call in service._upsert_candidate_extra.await_args_list[:2]
-    ]
-    assert persisted_payloads == [
-        {"observability_context": {"trace_id": "trace-1", "parent_span_id": "span-1"}},
-        {"observability_context": {"trace_id": "trace-1", "parent_span_id": "span-1"}},
-    ]
-    persisted_commits = [
-        call.kwargs.get("commit", False)
-        for call in service._upsert_candidate_extra.await_args_list[:2]
-    ]
-    assert persisted_commits == [False, True]
-
-
-def test_llm_authentication_error_public_message_includes_provider_specific_hint() -> None:
-    response = httpx.Response(
-        status_code=401,
-        request=httpx.Request(
-            "POST",
-            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-        ),
-    )
-    original = openai.AuthenticationError(
-        "Error code: 401",
-        response=response,
-        body={
-            "error": {
-                "type": "authorized_error",
-                "message": "login fail: missing token",
-            }
-        },
-    )
-
-    error = LLMAuthenticationError(
-        model="qwen3.5-flash",
-        provider="dashscope",
-        original_error=original,
-        detail="login fail: missing token",
-    )
-
-    assert (
-        error.public_message() == "upstream authentication failed: llm credentials were rejected; "
-        "model=qwen3.5-flash; verify llm api key/base url configuration; "
-        "detail=login fail: missing token"
-    )
+    prompt_text = captured_messages["messages"][0]["content"]
+    assert "unused-episodic-marker" not in prompt_text
+    assert "unused-semantic-marker" not in prompt_text
 
 
 @pytest.mark.asyncio

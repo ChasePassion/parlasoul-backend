@@ -14,6 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# python-dotenv treats an active tracer (coverage, debuggers) as a REPL and
+# resolves .env from the process cwd. Importing pymilvus calls load_dotenv(),
+# which otherwise injects the repository's real .env into os.environ and makes
+# test outcomes depend on ambient configuration.
+os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 os.environ["LANGFUSE_ENABLED"] = "false"
 os.environ["OTEL_SDK_DISABLED"] = "true"
 

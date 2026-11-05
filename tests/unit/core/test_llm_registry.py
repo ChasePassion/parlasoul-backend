@@ -10,6 +10,7 @@ def test_dashscope_bound_routes_can_select_distinct_provider_model_aliases() -> 
         LLM_DASHSCOPE_API_KEY="dashscope-key",
         LLM_DASHSCOPE_API_BASE="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
         LLM_DASHSCOPE_MODEL_ID="qwen-default",
+        LLM_DASHSCOPE_CHAT_MODEL_ID=None,
         LLM_DASHSCOPE_TITLE_MODEL_ID="qwen-title",
         LLM_DASHSCOPE_MEMORY_MODEL_ID="qwen-memory",
         LLM_DASHSCOPE_LEARNING_MODEL_ID="qwen-learning",
@@ -55,6 +56,10 @@ def test_dashscope_aliases_fall_back_to_default_model_when_role_model_is_not_set
         _env_file=None,
         LLM_DASHSCOPE_API_KEY="dashscope-key",
         LLM_DASHSCOPE_MODEL_ID="qwen-default",
+        LLM_DASHSCOPE_TITLE_MODEL_ID=None,
+        LLM_DASHSCOPE_MEMORY_MODEL_ID=None,
+        LLM_DASHSCOPE_LEARNING_MODEL_ID=None,
+        LLM_DASHSCOPE_VISION_MODEL_ID=None,
     )
     registry = LLMRegistry(settings)
 

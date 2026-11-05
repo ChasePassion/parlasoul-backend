@@ -69,7 +69,7 @@ async def seeded_conn(ensure_pg_enum_types) -> AsyncIterator[AsyncConnection]:
 
     engine = create_async_engine(settings.DATABASE_URL, echo=False, connect_args=connect_args)
     isolated_meta = MetaData()
-    isolated_tables = [t.tometadata(isolated_meta, schema=schema) for t in _TABLES]
+    isolated_tables = [t.to_metadata(isolated_meta, schema=schema) for t in _TABLES]
 
     admin_engine = create_async_engine(
         settings.DATABASE_URL, echo=False, connect_args=settings.database_connect_args

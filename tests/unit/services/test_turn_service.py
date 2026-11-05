@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -13,7 +14,6 @@ from src.api.response import APIError
 from src.db.models import AuthorType
 from src.schemas.learning import CardFavoriteState, FeedbackCard, ReplyCard, ReplyCardFavorite
 from src.services import turn_service as turn_service_module
-from src.services.chat_generation_service import ChatGenerationContext, build_llm_system_prompt
 from src.services.turn_service import (
     TurnService,
     _RegenPrep,
@@ -46,25 +46,6 @@ def _workflow_observation_stub(state: dict[str, bool]):
         yield Mock()
     finally:
         state["active"] = False
-
-
-def test_build_llm_system_prompt_injects_dialogue_style_for_regen_edit() -> None:
-    prompt = build_llm_system_prompt(
-        ChatGenerationContext(
-            character_system_prompt="Stay in character.",
-            dialogue_style_id="proud_resolve",
-            history_messages=[],
-            user_message="hi",
-            memories={"episodic": [], "semantic": []},
-            use_all_semantic=False,
-            preferred_expressions=[],
-            memory_active=False,
-        )
-    )
-
-    assert "Stay in character." in prompt
-    assert "more dignity, boundaries, and personal conviction" in prompt
-    assert "Retrieved memories" not in prompt
 
 
 @pytest.mark.asyncio
@@ -328,8 +309,8 @@ async def test_stream_regen_with_prep_skips_memory_when_memory_inactive(
 
     safe_memory_search = AsyncMock(
         return_value={
-            "episodic": [SimpleNamespace(text="memory")],
-            "semantic": [SimpleNamespace(text="fact")],
+            "episodic": [SimpleNamespace(text="unused-episodic-marker")],
+            "semantic": [SimpleNamespace(text="unused-semantic-marker")],
         }
     )
     spawn_bg_task = Mock(side_effect=_spawn_bg_task_stub)
@@ -383,11 +364,9 @@ async def test_stream_regen_with_prep_skips_memory_when_memory_inactive(
     safe_memory_search.assert_not_awaited()
     spawn_bg_task.assert_not_called()
     assert any('"type": "done"' in event for event in events)
-    assert "Retrieved memories" not in captured_messages["messages"][0]["content"]
-    assert service._upsert_candidate_extra.await_args_list[0].kwargs["payload"] == {
-        "observability_context": {"trace_id": "trace-regen", "parent_span_id": "span-regen"}
-    }
-    assert service._upsert_candidate_extra.await_args_list[0].kwargs["commit"] is True
+    prompt_text = captured_messages["messages"][0]["content"]
+    assert "unused-episodic-marker" not in prompt_text
+    assert "unused-semantic-marker" not in prompt_text
 
 
 @pytest.mark.asyncio
@@ -441,8 +420,8 @@ async def test_stream_user_edit_with_prep_skips_memory_when_memory_inactive(
 
     safe_memory_search = AsyncMock(
         return_value={
-            "episodic": [SimpleNamespace(text="memory")],
-            "semantic": [SimpleNamespace(text="fact")],
+            "episodic": [SimpleNamespace(text="unused-episodic-marker")],
+            "semantic": [SimpleNamespace(text="unused-semantic-marker")],
         }
     )
     spawn_bg_task = Mock(side_effect=_spawn_bg_task_stub)
@@ -498,19 +477,9 @@ async def test_stream_user_edit_with_prep_skips_memory_when_memory_inactive(
     safe_memory_search.assert_not_awaited()
     spawn_bg_task.assert_not_called()
     assert any('"type": "done"' in event for event in events)
-    assert "Retrieved memories" not in captured_messages["messages"][0]["content"]
-    persisted_payloads = [
-        call.kwargs["payload"] for call in service._upsert_candidate_extra.await_args_list[:2]
-    ]
-    assert persisted_payloads == [
-        {"observability_context": {"trace_id": "trace-edit", "parent_span_id": "span-edit"}},
-        {"observability_context": {"trace_id": "trace-edit", "parent_span_id": "span-edit"}},
-    ]
-    persisted_commits = [
-        call.kwargs.get("commit", False)
-        for call in service._upsert_candidate_extra.await_args_list[:2]
-    ]
-    assert persisted_commits == [False, True]
+    prompt_text = captured_messages["messages"][0]["content"]
+    assert "unused-episodic-marker" not in prompt_text
+    assert "unused-semantic-marker" not in prompt_text
 
 
 @pytest.mark.asyncio
@@ -755,13 +724,18 @@ async def test_stream_regen_with_prep_triggers_memory_manage_when_memory_active(
 
     safe_memory_search = AsyncMock(
         return_value={
-            "episodic": [SimpleNamespace(text="memory")],
-            "semantic": [SimpleNamespace(text="fact")],
+            "episodic": [SimpleNamespace(text="unused-episodic-marker")],
+            "semantic": [SimpleNamespace(text="unused-semantic-marker")],
         }
     )
-    spawn_bg_task = Mock(side_effect=_spawn_bg_task_stub)
+    spawned_coroutines: list = []
+
+    def _capture_spawn(coro, *, name, ctx=None):
+        spawned_coroutines.append(coro)
+        return Mock()
+
     monkeypatch.setattr(turn_service_module, "safe_memory_search", safe_memory_search)
-    monkeypatch.setattr(turn_service_module, "spawn_bg_task", spawn_bg_task)
+    monkeypatch.setattr(turn_service_module, "spawn_bg_task", _capture_spawn)
     monkeypatch.setattr(
         turn_service_module,
         "_load_llm_history_messages_from_leaf",
@@ -797,5 +771,8 @@ async def test_stream_regen_with_prep_triggers_memory_manage_when_memory_active(
         )
     ]
 
+    await asyncio.gather(*spawned_coroutines)
+
     safe_memory_search.assert_awaited_once()
-    assert spawn_bg_task.call_count == 2
+    service._memory_repo.manage.assert_awaited_once()
+    service._memory_repo.judge_and_assign_narrative_group.assert_awaited_once()

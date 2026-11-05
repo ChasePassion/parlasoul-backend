@@ -25,14 +25,14 @@ def test_character_create_rejects_tags_field() -> None:
     with pytest.raises(ValidationError) as exc:
         _build_character_create(tags=["photographer"])
 
-    assert "Extra inputs are not permitted" in str(exc.value)
+    assert exc.value.errors()[0]["type"] == "extra_forbidden"
 
 
 def test_character_update_rejects_tags_field() -> None:
     with pytest.raises(ValidationError) as exc:
         CharacterUpdate(tags=["photographer"])
 
-    assert "Extra inputs are not permitted" in str(exc.value)
+    assert exc.value.errors()[0]["type"] == "extra_forbidden"
 
 
 def test_character_create_accepts_llm_preset_and_dialogue_style() -> None:
@@ -59,18 +59,20 @@ def test_character_create_rejects_unknown_llm_preset() -> None:
     with pytest.raises(ValidationError) as exc:
         _build_character_create(llm_preset_id="custom-model")
 
-    assert "llm_preset_id must be one of" in str(exc.value)
+    assert exc.value.errors()[0]["type"] == "value_error"
+    assert exc.value.errors()[0]["loc"] == ("llm_preset_id",)
 
 
 def test_character_create_rejects_null_llm_preset() -> None:
     with pytest.raises(ValidationError) as exc:
         _build_character_create(llm_preset_id=None)
 
-    assert "Input should be a valid string" in str(exc.value)
+    assert exc.value.errors()[0]["type"] == "string_type"
 
 
 def test_character_update_rejects_unknown_dialogue_style() -> None:
     with pytest.raises(ValidationError) as exc:
         CharacterUpdate(dialogue_style_id="overpowered")
 
-    assert "dialogue_style_id must be one of" in str(exc.value)
+    assert exc.value.errors()[0]["type"] == "value_error"
+    assert exc.value.errors()[0]["loc"] == ("dialogue_style_id",)
