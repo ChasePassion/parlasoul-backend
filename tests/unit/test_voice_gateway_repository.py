@@ -766,7 +766,7 @@ async def test_list_system_voices_returns_all_voices_and_caches() -> None:
 
     assert len(result_1) == 24
     cherry = next(v for v in result_1 if v["provider_voice_id"] == "Cherry")
-    assert cherry["display_name"] == "芊悦"
+    assert cherry["display_name"] == "Cherry"
     assert cherry["provider_model"] == "qwen3-tts-instruct-flash-realtime"
     assert result_2 == result_1
 
