@@ -1098,7 +1098,9 @@ class TurnService:
                 history_messages=history_messages,
                 user_message=outbound_user_content,
                 memories=relevant_memories,
-                use_all_semantic=self._memory_repo.use_all_semantic,
+                use_all_semantic=(
+                    self._memory_repo.use_all_semantic if memory_active else False
+                ),
                 preferred_expressions=preferred_expressions,
                 chat_images=prep.chat_images,
                 memory_active=memory_active,
@@ -1911,7 +1913,9 @@ class TurnService:
                 history_messages=history_messages,
                 user_message=CONTINUE_PROMPT,
                 memories=relevant_memories,
-                use_all_semantic=self._memory_repo.use_all_semantic,
+                use_all_semantic=(
+                    self._memory_repo.use_all_semantic if memory_active else False
+                ),
                 preferred_expressions=preferred_expressions,
                 memory_active=memory_active,
                 channel_policy="chat",
@@ -2760,7 +2764,9 @@ class TurnService:
                 history_messages=history_messages,
                 user_message=outbound_user_content,
                 memories=relevant_memories,
-                use_all_semantic=self._memory_repo.use_all_semantic,
+                use_all_semantic=(
+                    self._memory_repo.use_all_semantic if memory_active else False
+                ),
                 preferred_expressions=preferred_expressions,
                 chat_images=prep.chat_images,
                 memory_active=memory_active,
