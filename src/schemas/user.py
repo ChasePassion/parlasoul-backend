@@ -10,6 +10,7 @@ from src.schemas.payment import UserAccessPassResponse
 
 SubscriptionTier = Literal["free", "plus", "pro"]
 EffectiveEntitlementSource = Literal["none", "recurring_subscription", "one_time_pass"]
+OnboardingStatus = Literal["pending", "discover_done", "completed", "skipped"]
 
 
 class UserProfileResponse(SQLModel):
@@ -23,6 +24,7 @@ class UserProfileResponse(SQLModel):
     avatar_urls: AvatarUrls | None = None
     created_at: datetime
     last_login_at: datetime | None = None
+    onboarding_status: OnboardingStatus
 
 
 class UserProfileUpdate(SQLModel):
@@ -30,6 +32,13 @@ class UserProfileUpdate(SQLModel):
 
     username: str | None = Field(None, min_length=2, max_length=50)
     avatar_image_key: str | None = None
+
+
+class OnboardingStatusUpdate(SQLModel):
+    """Request model for updating the onboarding tour status."""
+
+    status: Literal["discover_done", "completed", "skipped"]
+    model_config = {"extra": "forbid"}
 
 
 class UserEntitlementFeatures(SQLModel):

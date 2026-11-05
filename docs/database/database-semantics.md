@@ -275,6 +275,7 @@ sequenceDiagram
 | `subscription_product_id` | 当前关联的 Dodo 商品 ID。 | 用于从 product 映射到 `plus/pro/free`。 |
 | `subscription_current_period_end` | 当前订阅周期结束时间。 | 判断付费权益是否仍有效。 |
 | `last_login_at` | 最近一次成功登录时间。 | `better-auth` session create hook 回写。 |
+| `onboarding_status` | 新用户导览生命周期状态：`pending` 未开始、`discover_done` 发现页已完成、`completed` 全部完成、`skipped` 用户跳过。 | 新用户默认 `pending`；`PATCH /v1/users/me/onboarding` 推进；前端据此决定是否展示导览。 |
 | `created_at` | 用户在本系统第一次落库的时间。 | 用户审计与基础展示。 |
 | `updated_at` | 用户记录最近更新时间。 | 用户资料或订阅摘要变化时刷新。 |
 

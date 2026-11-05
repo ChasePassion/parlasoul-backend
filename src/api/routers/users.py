@@ -21,6 +21,7 @@ from src.schemas.proactive import (
     ReplaceProactiveCharacterPreferencesRequest,
 )
 from src.schemas.user import (
+    OnboardingStatusUpdate,
     UserEntitlementsResponse,
     UserProfileResponse,
     UserProfileUpdate,
@@ -58,6 +59,17 @@ async def update_my_profile(
     Allows updating username and avatar_image_key. At least one field must be provided.
     """
     data = await service.update_my_profile(profile, current_user=current_user)
+    return success_response(data, status_code=200)
+
+
+@router.patch("/me/onboarding", response_model=SuccessEnvelope[UserProfileResponse])
+async def update_my_onboarding_status(
+    payload: OnboardingStatusUpdate,
+    current_user: User = Depends(deps.get_current_user),
+    service: UserService = Depends(get_user_service),
+) -> JSONResponse:
+    """Update the current user's onboarding tour status."""
+    data = await service.update_onboarding_status(payload, current_user=current_user)
     return success_response(data, status_code=200)
 
 
