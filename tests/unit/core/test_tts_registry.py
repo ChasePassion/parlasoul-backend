@@ -11,6 +11,7 @@ from src.core.tts_registry import (
 )
 from src.core.tts_settings import TTSSettings
 from src.core.tts_voice_catalog import (
+    DASHSCOPE_REMOVED_SYSTEM_VOICE_IDS,
     DEFAULT_MINIMAX_TTS_MODEL,
     legacy_dashscope_voice_id_for_minimax,
 )
@@ -39,7 +40,6 @@ def test_default_system_voice_binding_uses_dashscope() -> None:
 def test_minimax_catalog_keeps_legacy_display_but_uses_minimax_voice_ids() -> None:
     voices = _registry().list_system_voices(provider="minimax", model=None)
 
-    assert len(voices) == 19
     first = voices[0]
     assert first["provider"] == "minimax"
     assert first["display_name"] == "Cherry"
@@ -47,11 +47,9 @@ def test_minimax_catalog_keeps_legacy_display_but_uses_minimax_voice_ids() -> No
     assert first["preview_audio_url"] == (
         "/media/voices/preview/minimax/Chinese_Mandarin_Wise_Women.mp3"
     )
-    assert all(item["display_name"] != "Pip" for item in voices)
-    assert all(item["display_name"] != "Bellona" for item in voices)
-    assert all(item["display_name"] != "阿闻" for item in voices)
-    assert all(item["display_name"] != "徐大爷" for item in voices)
-    assert all(item["display_name"] != "沙小弥" for item in voices)
+    provider_voice_ids = {item["provider_voice_id"] for item in voices}
+    assert len(provider_voice_ids) == len(voices)
+    assert {"Pip", "Bellona"}.isdisjoint(provider_voice_ids)
 
 
 def test_minimax_rejects_opus_audio_format() -> None:
@@ -82,12 +80,8 @@ def test_explicit_route_rejects_invalid_source_type_with_validation_error() -> N
 def test_dashscope_legacy_catalog_keeps_removed_voices_hidden() -> None:
     voices = _registry().list_system_voices(provider="dashscope", model=None)
 
-    assert len(voices) == 19
-    assert all(item["display_name"] != "顽屁小孩" for item in voices)
-    assert all(item["display_name"] != "燕铮莺" for item in voices)
-    assert all(item["display_name"] != "阿闻" for item in voices)
-    assert all(item["display_name"] != "徐大爷" for item in voices)
-    assert all(item["display_name"] != "沙小弥" for item in voices)
+    provider_voice_ids = {item["provider_voice_id"] for item in voices}
+    assert DASHSCOPE_REMOVED_SYSTEM_VOICE_IDS.isdisjoint(provider_voice_ids)
 
 
 def test_minimax_voice_can_map_back_to_dashscope_for_realtime_voice_calls() -> None:

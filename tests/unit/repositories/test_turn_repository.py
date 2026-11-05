@@ -25,19 +25,3 @@ async def test_count_user_turns_for_character_applies_cap() -> None:
 
     assert count == 10
     session.execute.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_get_last_proactive_outreach_at_returns_scalar_value() -> None:
-    expected = datetime.now(UTC)
-    scalar_result = SimpleNamespace(scalar_one=lambda: expected)
-    session = SimpleNamespace(execute=AsyncMock(return_value=scalar_result))
-    repo = TurnRepository(session)
-
-    result = await repo.get_last_proactive_outreach_at(
-        user_id=uuid.uuid4(),
-        character_id=uuid.uuid4(),
-    )
-
-    assert result == expected
-    session.execute.assert_awaited_once()

@@ -61,12 +61,14 @@ async def test_post_done_tail_tasks_emit_reply_card_error_when_card_is_invalid()
             if item is not None:
                 items.append(item)
 
-        assert {
-            "type": "reply_card_error",
-            "assistant_candidate_id": "cand-2",
-            "code": "reply_card_generation_failed",
-            "message": "reply card generation returned invalid payload",
-        } in items
+        reply_card_errors = [
+            item
+            for item in items
+            if isinstance(item, dict) and item.get("type") == "reply_card_error"
+        ]
+        assert len(reply_card_errors) == 1
+        assert reply_card_errors[0]["assistant_candidate_id"] == "cand-2"
+        assert reply_card_errors[0]["code"] == "reply_card_generation_failed"
     finally:
         await tasks.aclose()
 

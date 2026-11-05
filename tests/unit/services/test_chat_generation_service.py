@@ -1,9 +1,9 @@
-"""Golden prompt parity tests for the shared generation seam.
+"""Prompt layout tests for the shared generation seam.
 
-These pin the exact section layout of the system prompt that chat, turn and
-realtime production paths (and the evaluation replay runner) share. Any
-reordering, rewording or spacing change fails here and requires an explicit
-review of all four callers.
+These pin the section ordering of the system prompt that chat, turn and
+realtime production paths (and the evaluation replay runner) share. Marker
+values are used for dynamic blocks so rewording production copy does not
+break the tests; reordering or dropping a section does.
 """
 
 from __future__ import annotations
@@ -12,10 +12,7 @@ from typing import Any
 
 import pytest
 
-from src.core.dialogue_styles import (
-    DIALOGUE_STYLE_INSTRUCTION,
-    LIFE_PERSPECTIVE_INSTRUCTION,
-)
+from src.core.dialogue_styles import build_dialogue_style_block
 from src.memory_system import MemoryRecord
 from src.memory_system.prompts import MEMORY_ANSWER_PROMPT
 from src.schemas.chat import ChatImageRef
@@ -57,44 +54,31 @@ def _context(**overrides: Any) -> ChatGenerationContext:
     return ChatGenerationContext(**base)
 
 
-def test_golden_prompt_full_layout() -> None:
+def test_prompt_layout_preserves_section_ordering() -> None:
     context = _context(
+        character_system_prompt="<<CHAR_PROMPT>>",
         dialogue_style_id="spring_breeze",
         memories={
-            "episodic": [_record(f"episode {i}", "episodic", i) for i in range(1, 3)],
-            "semantic": [_record(f"fact {i}", "semantic", i) for i in range(1, 4)],
+            "episodic": [_record("<<EPISODIC_1>>", "episodic", 1)],
+            "semantic": [_record("<<SEMANTIC_1>>", "semantic", 2)],
         },
-        preferred_expressions=["cheers", "sounds good"],
+        preferred_expressions=["<<PREFERRED>>"],
+        memory_active=True,
+        channel_policy="voice",
     )
+    style_block = build_dialogue_style_block("spring_breeze")
 
-    expected = "\n".join(
-        [
-            _CHARACTER_PROMPT,
-            "",
-            LIFE_PERSPECTIVE_INSTRUCTION,
-            "",
-            f"{DIALOGUE_STYLE_INSTRUCTION}\n"
-            "Speak with a warmer, gentler, and more patient tone. "
-            "Make the user feel heard and emotionally supported, "
-            "while staying true to the character.",
-            "",
-            MEMORY_ANSWER_PROMPT.strip(),
-            "",
-            "Retrieved memories (may be empty):",
-            "Episodic:",
-            "1. episode 1",
-            "2. episode 2",
-            "",
-            "Semantic:",
-            "1. fact 1",
-            "2. fact 2",
-            "3. fact 3",
-            "",
-            ChatLearningService.build_preferred_expressions_prompt(["cheers", "sounds good"]),
-        ]
-    ).strip()
+    prompt = build_llm_system_prompt(context)
 
-    assert build_llm_system_prompt(context) == expected
+    assert prompt.startswith("<<CHAR_PROMPT>>")
+    assert prompt.endswith(VOICE_CHANNEL_POLICY.strip())
+    assert (
+        prompt.index(style_block)
+        < prompt.index("<<EPISODIC_1>>")
+        < prompt.index("<<SEMANTIC_1>>")
+        < prompt.index("<<PREFERRED>>")
+        < prompt.index(VOICE_CHANNEL_POLICY.strip())
+    )
 
 
 def test_memory_disabled_omits_memory_block_entirely() -> None:

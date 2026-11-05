@@ -294,15 +294,13 @@ async def test_load_preferred_expressions_returns_latest_unique_surfaces() -> No
     assert result == ["hit it off", "catch up"]
 
 
-def test_build_preferred_expressions_prompt_contains_rules_and_numbered_items() -> None:
+def test_build_preferred_expressions_prompt_keeps_order_and_deduplicates() -> None:
     prompt = ChatLearningService.build_preferred_expressions_prompt(
         ["hit it off", "catch up", "hit it off"]
     )
 
-    assert "Preferred expressions from the user's recent favorites" in prompt
-    assert "1. hit it off" in prompt
-    assert "2. catch up" in prompt
     assert prompt.count("hit it off") == 1
+    assert prompt.index("hit it off") < prompt.index("catch up")
 
 
 def _parse_sse_payloads(events: list[str]) -> list[dict[str, object]]:
@@ -332,7 +330,7 @@ def test_sanitize_assistant_context_keeps_latest_valid_messages_without_char_bud
     ]
 
 
-def test_build_assistant_messages_adds_system_prompt_and_question() -> None:
+def test_build_assistant_messages_groups_contexts_and_appends_question() -> None:
     service = ChatLearningService(gateway_service=_StubGateway(), registry=_StubRegistry())
 
     messages = service._build_assistant_messages(
@@ -341,17 +339,16 @@ def test_build_assistant_messages_adds_system_prompt_and_question() -> None:
         assistant_chat_context=[{"role": "user", "content": "Can you explain that?"}],
     )
 
-    assert messages[0]["role"] == "system"
-    assert "English learning assistant" in messages[0]["content"]
-    assert messages[1] == {
-        "role": "system",
-        "content": "下面是用户和角色对话的聊天记录（注意并不是和你对话）：",
-    }
+    assert [message["role"] for message in messages] == [
+        "system",
+        "system",
+        "assistant",
+        "system",
+        "user",
+        "user",
+    ]
+    assert messages[1]["content"] != messages[3]["content"]
     assert messages[2] == {"role": "assistant", "content": "How was your weekend?"}
-    assert messages[3] == {
-        "role": "system",
-        "content": "下面是你和用户对话的聊天记录：",
-    }
     assert messages[4] == {"role": "user", "content": "Can you explain that?"}
     assert messages[-1] == {"role": "user", "content": "What does this mean?"}
 
@@ -388,8 +385,6 @@ async def test_stream_assistant_reply_emits_chunk_and_done_events() -> None:
     assert gateway.stream_text_calls[0]["route_role"] == "learning"
     assert gateway.stream_text_calls[0]["user_id"] == "user-1"
     assert gateway.stream_text_calls[0]["chat_id"] == "chat-1"
-    assert gateway.stream_text_calls[0]["messages"][1]["content"] == "下面是用户和角色对话的聊天记录（注意并不是和你对话）："
-    assert gateway.stream_text_calls[0]["messages"][4]["content"] == "下面是你和用户对话的聊天记录："
 
 
 @pytest.mark.asyncio

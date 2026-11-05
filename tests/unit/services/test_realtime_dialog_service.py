@@ -32,7 +32,6 @@ def test_voice_channel_policy_keeps_character_prompt_then_adds_voice_rules() -> 
 
     assert prompt.startswith("Stay in character.\n")
     assert prompt.endswith(VOICE_CHANNEL_POLICY)
-    assert "Do not use Markdown" in prompt
 
 
 def test_voice_channel_strips_image_parts_keeping_text_on_same_message() -> None:

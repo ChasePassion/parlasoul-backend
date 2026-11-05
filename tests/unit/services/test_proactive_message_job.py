@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -85,6 +86,7 @@ async def test_proactive_message_job_marks_dispatch_skipped_when_disabled() -> N
     await job.process_claimed_dispatch(dispatch)
 
     dispatch_repo.mark_skipped.assert_awaited_once()
+    assert dispatch_repo.mark_skipped.await_args.kwargs["error_code"] == "resource_conflict"
     dispatch_repo.mark_succeeded.assert_not_awaited()
 
 
@@ -103,11 +105,38 @@ async def test_proactive_message_job_success_path_marks_dispatch_succeeded(
         mark_failed=AsyncMock(),
     )
 
-    def _fake_spawn(coro, **_kwargs):
-        coro.close()
-        return None
+    chat = SimpleNamespace(id=uuid.uuid4())
+    turn = SimpleNamespace(id=uuid.uuid4())
+    candidate = SimpleNamespace(id=uuid.uuid4())
+    memory_repo = SimpleNamespace(
+        list_for_proactive_prompt=AsyncMock(
+            return_value={
+                "semantic": [
+                    SimpleNamespace(text="memory one"),
+                    SimpleNamespace(text="memory two"),
+                    SimpleNamespace(text="memory three"),
+                ],
+                "episodic": [],
+            }
+        ),
+        record_proactive_outreach=AsyncMock(),
+    )
+    chat_service = SimpleNamespace(
+        create_proactive_chat=AsyncMock(return_value=(chat, turn, candidate))
+    )
+    character_llm_service = SimpleNamespace(
+        resolve_runtime_route=AsyncMock(return_value=SimpleNamespace()),
+        generate_text=AsyncMock(return_value="hello from proactive job"),
+    )
 
-    monkeypatch.setattr("src.services.proactive_message_job.spawn_bg_task", _fake_spawn)
+    spawned_tasks: list[asyncio.Task[None]] = []
+
+    def _schedule(coro, **_kwargs):
+        task = asyncio.create_task(coro)
+        spawned_tasks.append(task)
+        return task
+
+    monkeypatch.setattr("src.services.proactive_message_job.spawn_bg_task", _schedule)
 
     job = ProactiveMessageJob(
         uow=SimpleNamespace(),
@@ -121,19 +150,7 @@ async def test_proactive_message_job_success_path_marks_dispatch_succeeded(
             get_last_activity_at=AsyncMock(return_value=datetime.now(UTC) - timedelta(days=2)),
             get_last_interaction_at=AsyncMock(return_value=datetime.now(UTC) - timedelta(days=2)),
         ),
-        memory_repo=SimpleNamespace(
-            list_for_proactive_prompt=AsyncMock(
-                return_value={
-                    "semantic": [
-                        SimpleNamespace(text="memory one"),
-                        SimpleNamespace(text="memory two"),
-                        SimpleNamespace(text="memory three"),
-                    ],
-                    "episodic": [],
-                }
-            ),
-            record_proactive_outreach=AsyncMock(),
-        ),
+        memory_repo=memory_repo,
         selector=SimpleNamespace(
             select=AsyncMock(
                 return_value=SelectionResult(
@@ -143,23 +160,29 @@ async def test_proactive_message_job_success_path_marks_dispatch_succeeded(
                 )
             )
         ),
-        chat_service=SimpleNamespace(
-            create_proactive_chat=AsyncMock(
-                return_value=(
-                    SimpleNamespace(id=uuid.uuid4()),
-                    SimpleNamespace(id=uuid.uuid4()),
-                    SimpleNamespace(id=uuid.uuid4()),
-                )
-            )
-        ),
-        character_llm_service=SimpleNamespace(
-            resolve_runtime_route=AsyncMock(return_value=SimpleNamespace()),
-            generate_text=AsyncMock(return_value="hello from proactive job"),
-        ),
+        chat_service=chat_service,
+        character_llm_service=character_llm_service,
     )
 
     await job.process_claimed_dispatch(dispatch)
+    await asyncio.gather(*spawned_tasks)
+
+    chat_service.create_proactive_chat.assert_awaited_once()
+    create_kwargs = chat_service.create_proactive_chat.await_args.kwargs
+    assert create_kwargs["content"] == "hello from proactive job"
+    assert create_kwargs["character"] is character
+
+    memory_repo.record_proactive_outreach.assert_awaited_once_with(
+        proactive_message="hello from proactive job",
+        user_id=str(user.id),
+        character_id=str(character.id),
+        chat_id=str(chat.id),
+    )
 
     dispatch_repo.mark_succeeded.assert_awaited_once()
+    payload = dispatch_repo.mark_succeeded.await_args.kwargs["payload_json"]
+    assert payload["chat_id"] == str(chat.id)
+    assert payload["turn_id"] == str(turn.id)
+    assert payload["candidate_id"] == str(candidate.id)
     dispatch_repo.mark_failed.assert_not_awaited()
     dispatch_repo.schedule_retry.assert_not_awaited()
