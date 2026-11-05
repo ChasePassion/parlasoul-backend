@@ -36,6 +36,7 @@ class _StubUserService:
     def __init__(self) -> None:
         self.get_my_profile = AsyncMock()
         self.update_my_profile = AsyncMock()
+        self.update_onboarding_status = AsyncMock()
         self.get_my_settings = AsyncMock()
         self.update_my_settings = AsyncMock()
         self.get_creator_characters = AsyncMock()
@@ -95,6 +96,7 @@ def test_get_my_profile_delegates_to_service() -> None:
         avatar_urls=None,
         created_at="2026-01-01T00:00:00Z",
         last_login_at=None,
+        onboarding_status="completed",
     )
     app = _create_app(service)
 
@@ -117,6 +119,7 @@ def test_update_my_profile_delegates_to_service() -> None:
         avatar_urls=None,
         created_at="2026-01-01T00:00:00Z",
         last_login_at=None,
+        onboarding_status="completed",
     )
     app = _create_app(service)
 
@@ -126,6 +129,32 @@ def test_update_my_profile_delegates_to_service() -> None:
     assert resp.status_code == 200
     assert resp.json()["data"]["username"] == "updated"
     service.update_my_profile.assert_awaited_once()
+
+
+def test_update_my_onboarding_status_delegates_to_service() -> None:
+    service = _StubUserService()
+    service.update_onboarding_status.return_value = UserProfileResponse(
+        id=str(uuid.uuid4()),
+        email="viewer@example.com",
+        username="viewer",
+        email_verified=True,
+        avatar_image_key=None,
+        avatar_urls=None,
+        created_at="2026-01-01T00:00:00Z",
+        last_login_at=None,
+        onboarding_status="discover_done",
+    )
+    app = _create_app(service)
+
+    with TestClient(app) as client:
+        resp = client.patch(
+            "/v1/users/me/onboarding",
+            json={"status": "discover_done"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["data"]["onboarding_status"] == "discover_done"
+    service.update_onboarding_status.assert_awaited_once()
 
 
 def test_get_my_settings_delegates_to_service() -> None:

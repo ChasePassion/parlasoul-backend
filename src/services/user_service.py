@@ -11,7 +11,7 @@ from src.repositories.character_repository import CharacterRepository
 from src.repositories.user_repository import UserRepository
 from src.schemas.character import CharacterResponse
 from src.schemas.media import MediaUploadKind
-from src.schemas.user import UserProfileResponse, UserProfileUpdate
+from src.schemas.user import OnboardingStatusUpdate, UserProfileResponse, UserProfileUpdate
 from src.services.media_url_service import (
     build_avatar_urls,
     validate_avatar_image_key_owner,
@@ -28,6 +28,7 @@ def _to_profile_response(user: User) -> UserProfileResponse:
         avatar_urls=build_avatar_urls(user.avatar_image_key),
         created_at=user.created_at,
         last_login_at=user.last_login_at,
+        onboarding_status=user.onboarding_status,
     )
 
 
@@ -105,6 +106,18 @@ class UserService:
             current_user,
             username=profile.username,
             avatar_image_key=avatar_image_key,
+        )
+        return _to_profile_response(updated)
+
+    async def update_onboarding_status(
+        self,
+        payload: OnboardingStatusUpdate,
+        *,
+        current_user: User,
+    ) -> UserProfileResponse:
+        updated = await self._user_repo.update_onboarding_status(
+            current_user,
+            status=payload.status,
         )
         return _to_profile_response(updated)
 

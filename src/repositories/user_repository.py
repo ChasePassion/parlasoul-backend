@@ -10,6 +10,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.db.models import Character, CharacterStatusType, User, VisibilityType
 
+_TERMINAL_ONBOARDING_STATUSES = frozenset({"completed", "skipped"})
+
 
 class UserRepository:
     """Data access methods for users and creator character lists."""
@@ -55,6 +57,17 @@ class UserRepository:
         if avatar_image_key is not None:
             user.avatar_image_key = avatar_image_key
 
+        await self._db.commit()
+        await self._db.refresh(user)
+        return user
+
+    async def update_onboarding_status(self, user: User, *, status: str) -> User:
+        if user.onboarding_status in _TERMINAL_ONBOARDING_STATUSES:
+            return user
+        if user.onboarding_status == status:
+            return user
+
+        user.onboarding_status = status
         await self._db.commit()
         await self._db.refresh(user)
         return user

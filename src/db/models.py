@@ -227,6 +227,12 @@ turn_state_enum = PG_ENUM(
 
 class User(Base, table=True):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "onboarding_status IN ('pending', 'discover_done', 'completed', 'skipped')",
+            name="users_onboarding_status_check",
+        ),
+    )
 
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -273,6 +279,10 @@ class User(Base, table=True):
     )
     last_login_at: datetime | None = Field(
         default=None, sa_column=Column(TIMESTAMP(timezone=True), nullable=True)
+    )
+    onboarding_status: str = Field(
+        default="pending",
+        sa_column=Column(String(32), nullable=False, server_default="pending"),
     )
 
     characters: list["Character"] = Relationship(back_populates="creator")
