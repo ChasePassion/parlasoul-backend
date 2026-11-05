@@ -362,6 +362,9 @@ class Settings(BaseSettings):
     )
     DASHSCOPE_TIMBRE_LIST_CACHE_SECONDS: int = 600
     DASHSCOPE_TTS_INSTRUCTIONS_DEFAULT: str = ""
+    # Spoken language of every character voice. The product ships English audio,
+    # so the value is sent explicitly instead of relying on the provider default (Auto).
+    DASHSCOPE_TTS_LANGUAGE_TYPE: str = "English"
     MINIMAX_TTS_API_KEY: str | None = None
     MINIMAX_TTS_WEBSOCKET_API_URL: str = "wss://api.minimaxi.com/ws/v1/t2a_v2"
     MINIMAX_TTS_MODEL_ID: str = "speech-2.8-turbo"
