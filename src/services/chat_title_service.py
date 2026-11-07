@@ -33,7 +33,7 @@ class ChatTitleService:
         stripped = text.strip()
         if stripped.startswith("```"):
             stripped = stripped.strip("`").strip()
-        return stripped.strip().strip("\"''`")
+        return stripped.strip("\"''`")
 
     @staticmethod
     def clean_title(raw_title: str, *, max_length: int = app_settings.CHAT_TITLE_MAX_LENGTH) -> str | None:

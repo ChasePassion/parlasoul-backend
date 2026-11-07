@@ -692,24 +692,14 @@ class CharacterForgeService:
                             assistant_message,
                             ui_payloads=[*existing, outcome.ui_payload],
                         )
-                        if outcome.ui_payload["type"] == "voice_preview":
+                        if outcome.ui_payload["type"] in {
+                            "voice_preview",
+                            "character_created",
+                            "character_updated",
+                        }:
                             yield _sse(
                                 {
-                                    "type": "voice_preview",
-                                    "payload": outcome.ui_payload,
-                                }
-                            )
-                        elif outcome.ui_payload["type"] == "character_created":
-                            yield _sse(
-                                {
-                                    "type": "character_created",
-                                    "payload": outcome.ui_payload,
-                                }
-                            )
-                        elif outcome.ui_payload["type"] == "character_updated":
-                            yield _sse(
-                                {
-                                    "type": "character_updated",
+                                    "type": outcome.ui_payload["type"],
                                     "payload": outcome.ui_payload,
                                 }
                             )

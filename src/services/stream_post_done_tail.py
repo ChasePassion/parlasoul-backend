@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any
 
@@ -68,13 +69,10 @@ class PostDoneTailTasks:
 def start_post_done_tail_tasks(
     *,
     assistant_candidate_id: str,
-    suggestions_coro: asyncio.Future[list[ReplySuggestion]] | asyncio.Task[list[ReplySuggestion]] | Any,
+    suggestions_coro: Awaitable[list[ReplySuggestion]],
     logger: logging.Logger,
     suggestions_error_log_message: str,
-    reply_card_core_coro: asyncio.Future[ReplyCardCore | None]
-    | asyncio.Task[ReplyCardCore | None]
-    | Any
-    | None = None,
+    reply_card_core_coro: Awaitable[ReplyCardCore | None] | None = None,
     reply_card_error_log_message: str | None = None,
 ) -> PostDoneTailTasks:
     queue: asyncio.Queue[PostDoneQueueItem] = asyncio.Queue()

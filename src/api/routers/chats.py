@@ -142,7 +142,7 @@ async def stream_chat(
 
     async def event_generator():
         async for item in service.stream_chat_with_prep(
-            prep=prep, current_user=current_user, content=req.content, images=req.images
+            prep=prep, current_user=current_user, content=req.content
         ):
             yield item
 

@@ -146,10 +146,6 @@ def _validate_character_avatar_image_key_or_raise(
     return normalized
 
 
-def _is_character_creator(character: Character, current_user: User | None) -> bool:
-    return current_user is not None and character.creator_id == current_user.id
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -365,13 +361,6 @@ class CharacterService:
                     )
         return _to_fallback_voice_item(character)
 
-    async def _resolve_create_llm_binding_or_raise(
-        self, character_in: CharacterCreate
-    ) -> dict[str, str | None]:
-        return {
-            "llm_preset_id": character_in.llm_preset_id,
-        }
-
     async def _assert_llm_preset_allowed(
         self, *, preset_id: str | None, current_user: User
     ) -> None:
@@ -399,23 +388,21 @@ class CharacterService:
     async def _apply_update_llm_binding_or_raise(
         self,
         *,
-        character: Character,
         update_data: dict[str, object],
         current_user: User,
     ) -> None:
-        llm_keys = {"llm_preset_id"}
-        if not any(key in update_data for key in llm_keys):
+        if "llm_preset_id" not in update_data:
             return
-        if update_data.get("llm_preset_id") is None and "llm_preset_id" in update_data:
+        raw_preset_id = update_data["llm_preset_id"]
+        if raw_preset_id is None:
             raise APIError(
                 status_code=422,
                 code=ErrorCode.VALIDATION_FAILED,
                 message="validation failed: llm_preset_id cannot be null; omit it to keep unchanged",
             )
-        raw_preset_id = update_data.get("llm_preset_id")
-        current_preset_id = getattr(character, "llm_preset_id", None)
-        preset_id = str(raw_preset_id) if raw_preset_id is not None else current_preset_id
-        await self._assert_llm_preset_allowed(preset_id=preset_id, current_user=current_user)
+        await self._assert_llm_preset_allowed(
+            preset_id=str(raw_preset_id), current_user=current_user
+        )
 
     async def create_character(
         self,
@@ -429,7 +416,7 @@ class CharacterService:
             voice_provider_voice_id=character_in.voice_provider_voice_id,
             voice_source_type=character_in.voice_source_type.value,
         )
-        llm_binding = await self._resolve_create_llm_binding_or_raise(character_in)
+        llm_binding = {"llm_preset_id": character_in.llm_preset_id}
         await self._assert_llm_preset_allowed(
             preset_id=llm_binding["llm_preset_id"],
             current_user=current_user,
@@ -572,7 +559,6 @@ class CharacterService:
                     update_data["voice_profile"]
                 ).to_dict()
         await self._apply_update_llm_binding_or_raise(
-            character=character,
             update_data=update_data,
             current_user=current_user,
         )

@@ -394,20 +394,18 @@ class ChatLearningService:
         if preferred_prompt:
             system_prompt = f"{system_prompt}\n\n{preferred_prompt}"
 
-        resolved_route = route or self._learning_route()
-        raw = await self._gateway_service.generate_json(
-            route=resolved_route,
+        raw = await self._llm_json(
             system_prompt=system_prompt,
             user_message=json.dumps(payload, ensure_ascii=False),
             default={"suggestions": []},
             operation="learning.reply_suggestions.generate",
-            route_role="learning",
             trace_context=trace_context,
             user_id=user_id,
             chat_id=chat_id,
             turn_id=turn_id,
             candidate_id=candidate_id,
             character_id=character_id,
+            route=route,
         )
         items = raw.get("suggestions")
         parsed: list[ReplySuggestion] = []
@@ -723,13 +721,4 @@ class ChatLearningService:
                 surface=example_surface,
                 zh="（暂无中文释义）",
             ),
-        )
-
-    @staticmethod
-    def _fallback_feedback_card_core(user_message_to_improve: str) -> FeedbackCardCore:
-        base_surface = (user_message_to_improve or "").strip() or "..."
-        return FeedbackCardCore(
-            surface=base_surface,
-            zh="（暂无中文释义）",
-            key_phrases=[],
         )
