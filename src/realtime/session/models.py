@@ -1019,18 +1019,7 @@ class RealtimeSession:
                 )
                 self._ensure_generation(generation_id, cancel_event)
                 if persisted:
-                    await self.bus.publish(
-                        RealtimeEvent(
-                            "conversation_turn_updated",
-                            {
-                                "chat_id": str(self.chat_id),
-                                "assistant_turn_id": str(turn_ctx.assistant_turn_id),
-                                "assistant_candidate_id": str(turn_ctx.assistant_candidate_id),
-                                "is_final": False,
-                                "generation_id": generation_id,
-                            },
-                        )
-                    )
+                    await self._publish_turn_updated(turn_ctx, generation_id, is_final=False)
 
             stage = "llm"
             await self._record_metric(
@@ -1108,18 +1097,7 @@ class RealtimeSession:
             stage = "persistence"
             await self.turn_service.finalize_assistant_success(turn_ctx, user_id=self.user_id)
             self._ensure_generation(generation_id, cancel_event)
-            await self.bus.publish(
-                RealtimeEvent(
-                    "conversation_turn_updated",
-                    {
-                        "chat_id": str(self.chat_id),
-                        "assistant_turn_id": str(turn_ctx.assistant_turn_id),
-                        "assistant_candidate_id": str(turn_ctx.assistant_candidate_id),
-                        "is_final": True,
-                        "generation_id": generation_id,
-                    },
-                )
-            )
+            await self._publish_turn_updated(turn_ctx, generation_id, is_final=True)
 
             stage = "playout"
             if not await self.audio_pacer.wait_until_drained(generation_id):
@@ -1161,17 +1139,8 @@ class RealtimeSession:
                     user_id=self.user_id,
                 )
                 if self._owns_generation(generation_id):
-                    await self.bus.publish(
-                        RealtimeEvent(
-                            "conversation_turn_updated",
-                            {
-                                "chat_id": str(self.chat_id),
-                                "assistant_turn_id": str(turn_ctx.assistant_turn_id),
-                                "assistant_candidate_id": str(turn_ctx.assistant_candidate_id),
-                                "is_final": interrupted_is_final,
-                                "generation_id": generation_id,
-                            },
-                        )
+                    await self._publish_turn_updated(
+                        turn_ctx, generation_id, is_final=interrupted_is_final
                     )
             if (
                 self._owns_generation(generation_id)
@@ -1401,6 +1370,26 @@ class RealtimeSession:
                 "state": state.value,
                 "offset_ms": offset_ms,
             },
+        )
+
+    async def _publish_turn_updated(
+        self,
+        turn_ctx: CurrentTurnContext,
+        generation_id: int,
+        *,
+        is_final: bool,
+    ) -> None:
+        await self.bus.publish(
+            RealtimeEvent(
+                "conversation_turn_updated",
+                {
+                    "chat_id": str(self.chat_id),
+                    "assistant_turn_id": str(turn_ctx.assistant_turn_id),
+                    "assistant_candidate_id": str(turn_ctx.assistant_candidate_id),
+                    "is_final": is_final,
+                    "generation_id": generation_id,
+                },
+            )
         )
 
     def _ensure_generation(self, generation_id: int, cancel_event: asyncio.Event) -> None:
