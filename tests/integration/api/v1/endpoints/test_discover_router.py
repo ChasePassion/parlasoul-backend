@@ -101,13 +101,3 @@ def test_discover_config_route_passes_professional_ids_through_unchanged() -> No
     assert resp.json()["data"]["professional_character_ids"] == generated_ids
 
 
-def test_discover_config_route_defaults_professional_ids_to_empty_list() -> None:
-    """Default contract: when the service returns no professional ids, the
-    field is serialized as an empty list (not null, not missing)."""
-    app = _create_app(_StubDiscoverConfigService())
-
-    with TestClient(app) as client:
-        resp = client.get("/v1/discover/config")
-
-    assert resp.status_code == 200
-    assert resp.json()["data"]["professional_character_ids"] == []

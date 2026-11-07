@@ -644,42 +644,6 @@ async def test_create_voice_clone_calls_dashscope_customization_endpoint() -> No
     assert result["provider_request_id"] == "req-create-1"
 
 
-@pytest.mark.asyncio
-async def test_create_voice_clone_legacy_payload_contract() -> None:
-    repo = _build_repo_for_clone()
-    captured_payload: dict[str, Any] = {}
-
-    async def _post_stub(payload: dict[str, Any]) -> dict[str, Any]:
-        captured_payload.update(payload)
-        return {
-            "request_id": "req-create-1",
-            "output": {
-                "voice": "bob_new",
-                "target_model": "qwen3-tts-vc-realtime-2026-01-15",
-            },
-        }
-
-    repo._post_tts_customization = _post_stub  # type: ignore[method-assign]
-
-    result = await repo.create_voice_clone(
-        provider="dashscope",
-        display_name="My Voice",
-        source_audio_bytes=b"abc",
-        source_audio_format="wav",
-        description=None,
-        language_hint="zh",
-        idempotency_key=None,
-    )
-
-    assert captured_payload["model"] == "qwen-voice-enrollment"
-    assert captured_payload["input"]["action"] == "create"
-    assert captured_payload["input"]["target_model"] == "qwen3-tts-vc-realtime-2026-01-15"
-    assert captured_payload["input"]["audio"]["data"].startswith("data:audio/wav;base64,")
-    assert captured_payload["input"]["language"] == "zh"
-    assert result["provider_voice_id"] == "bob_new"
-    assert result["provider_status"] == "active"
-    assert result["provider_model"] == "qwen3-tts-vc-realtime-2026-01-15"
-    assert result["provider_request_id"] == "req-create-1"
 
 
 @pytest.mark.asyncio

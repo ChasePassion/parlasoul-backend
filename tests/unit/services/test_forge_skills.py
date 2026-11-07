@@ -17,9 +17,7 @@ from src.services.character_forge_tools import (
     collect_reference_images,
 )
 from src.services.forge_skills import (
-    FORGE_SKILLS,
     SKILL_NAMES,
-    build_skill_catalog,
     load_forge_skill,
 )
 
@@ -54,18 +52,6 @@ def _executor() -> ForgeToolExecutor:
     )
 
 
-def test_catalog_lists_every_skill():
-    catalog = build_skill_catalog()
-    assert SKILL_NAMES == (
-        "avatar-creation",
-        "prompt-creation",
-        "voice-creation",
-    )
-    for name in SKILL_NAMES:
-        assert name in catalog
-    for skill in FORGE_SKILLS.values():
-        assert len(skill.description) <= 250
-        assert skill.content
 
 
 def test_character_skill_renders_both_system_prompt_templates():

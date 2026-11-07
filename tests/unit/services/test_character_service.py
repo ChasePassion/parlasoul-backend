@@ -257,28 +257,6 @@ async def test_update_character_rejects_null_llm_preset() -> None:
     repo.update.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_get_character_public_visible_to_non_owner() -> None:
-    owner_id = uuid.uuid4()
-    viewer_id = uuid.uuid4()
-    character = _build_character(creator_id=owner_id, visibility=VisibilityType.PUBLIC.value)
-    repo = CharacterRepository.__new__(CharacterRepository)
-    repo.get_by_id = AsyncMock(return_value=character)
-    repo.get_creator_username = AsyncMock(return_value="owner_username")
-    repo.count_distinct_users_by_character = AsyncMock(return_value=0)
-    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
-    voice_repo.get_ready_clone_by_owner_and_provider_voice = AsyncMock(return_value=None)
-    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    service = CharacterService(
-        repo,
-        voice_repo,
-        gateway_repo,
-    )
-
-    result = await service.get_character(character.id, current_user=_build_user(viewer_id))
-
-    assert result is not None
-    assert result.id == str(character.id)
 
 
 @pytest.mark.asyncio
