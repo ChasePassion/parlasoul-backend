@@ -200,6 +200,18 @@ class CharacterForgeService:
 
     # ---------------------------------------------------------------- sessions
 
+    async def _require_session(
+        self, user: User, session_id: uuid.UUID
+    ) -> CharacterForgeSession:
+        session = await self._repo.get_session(session_id, user_id=user.id)
+        if not session:
+            raise APIError(
+                status_code=404,
+                code="resource_not_found",
+                message=f"resource not found: forge session does not exist; session_id={session_id}",
+            )
+        return session
+
     async def create_session(self, user: User) -> ForgeSessionDetail:
         session = await self._repo.create_session(user_id=user.id)
         await self._repo.add_message(
@@ -213,13 +225,7 @@ class CharacterForgeService:
     async def rename_session(
         self, user: User, session_id: uuid.UUID, title: str
     ) -> ForgeSessionSummary:
-        session = await self._repo.get_session(session_id, user_id=user.id)
-        if not session:
-            raise APIError(
-                status_code=404,
-                code="resource_not_found",
-                message=f"resource not found: forge session does not exist; session_id={session_id}",
-            )
+        session = await self._require_session(user, session_id)
         cleaned = title.strip()
         if not cleaned:
             raise APIError(
@@ -277,13 +283,7 @@ class CharacterForgeService:
     async def get_session_detail(
         self, user: User, session_id: uuid.UUID
     ) -> ForgeSessionDetail:
-        session = await self._repo.get_session(session_id, user_id=user.id)
-        if not session:
-            raise APIError(
-                status_code=404,
-                code="resource_not_found",
-                message=f"resource not found: forge session does not exist; session_id={session_id}",
-            )
+        session = await self._require_session(user, session_id)
         messages = await self._repo.list_messages(session.id, limit=400)
         character = None
         if session.active_character_id:
@@ -321,16 +321,7 @@ class CharacterForgeService:
         )
 
     async def assert_stream_available(self, user: User, session_id: uuid.UUID) -> None:
-        session = await self._repo.get_session(session_id, user_id=user.id)
-        if not session:
-            raise APIError(
-                status_code=404,
-                code="resource_not_found",
-                message=(
-                    "resource not found: forge session does not exist; "
-                    f"session_id={session_id}"
-                ),
-            )
+        await self._require_session(user, session_id)
         if self._lock_for(session_id).locked():
             raise APIError(
                 status_code=409,
@@ -352,16 +343,7 @@ class CharacterForgeService:
         running loop reaches a provider-safe boundary (all tool results from
         the current batch already appended).
         """
-        session = await self._repo.get_session(session_id, user_id=user.id)
-        if not session:
-            raise APIError(
-                status_code=404,
-                code="resource_not_found",
-                message=(
-                    "resource not found: forge session does not exist; "
-                    f"session_id={session_id}"
-                ),
-            )
+        await self._require_session(user, session_id)
 
         runtime = _runtime_for(session_id)
         # No await between the check and the append, so the loop can only
@@ -387,13 +369,7 @@ class CharacterForgeService:
         )
 
     async def delete_session(self, user: User, session_id: uuid.UUID) -> None:
-        session = await self._repo.get_session(session_id, user_id=user.id)
-        if not session:
-            raise APIError(
-                status_code=404,
-                code="resource_not_found",
-                message=f"resource not found: forge session does not exist; session_id={session_id}",
-            )
+        session = await self._require_session(user, session_id)
         await self._repo.delete_session(session)
         _SESSION_RUNTIMES.pop(session_id, None)
 
@@ -409,13 +385,7 @@ class CharacterForgeService:
         content: str,
         images: list[ChatImageRef] | None = None,
     ) -> AsyncGenerator[str, None]:
-        session = await self._repo.get_session(session_id, user_id=user.id)
-        if not session:
-            raise APIError(
-                status_code=404,
-                code="resource_not_found",
-                message=f"resource not found: forge session does not exist; session_id={session_id}",
-            )
+        session = await self._require_session(user, session_id)
 
         runtime = _runtime_for(session_id)
         if runtime.lock.locked():

@@ -25,6 +25,7 @@ from src.db.models import (
     Turn,
     TurnState,
     User,
+    UserSettings,
 )
 from src.memory_system import MemoryRecord
 from src.memory_system.exceptions import LLMAuthenticationError, LLMCallError
@@ -92,6 +93,20 @@ def _now_utc() -> datetime:
 
 def _sse_event(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _extract_persisted_trace_context(candidate: Candidate | None) -> dict[str, str] | None:
+    extra = getattr(candidate, "extra", None)
+    if not isinstance(extra, dict):
+        return None
+    raw_context = extra.get("observability_context")
+    if not isinstance(raw_context, dict):
+        return None
+    trace_id = raw_context.get("trace_id")
+    parent_span_id = raw_context.get("parent_span_id")
+    if not (isinstance(trace_id, str) and isinstance(parent_span_id, str)):
+        return None
+    return {"trace_id": trace_id, "parent_span_id": parent_span_id}
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +231,26 @@ class TurnService:
         self._voice_service = voice_service
         self._character_llm_service = character_llm_service or CharacterLLMService()
         self._subscription_service = subscription_service
+
+    async def _get_or_create_user_settings(self, user_id: uuid.UUID) -> UserSettings:
+        return await self._user_settings_repo.get_or_create(
+            user_id,
+            default_font_size=app_settings.USER_SETTINGS_MESSAGE_FONT_SIZE_DEFAULT,
+            default_display_mode=app_settings.USER_SETTINGS_DISPLAY_MODE_DEFAULT,
+            default_memory_enabled=True,
+            default_reply_card_enabled=app_settings.USER_SETTINGS_REPLY_CARD_ENABLED_DEFAULT,
+            default_mixed_input_auto_translate_enabled=(
+                app_settings.USER_SETTINGS_MIXED_INPUT_AUTO_TRANSLATE_ENABLED_DEFAULT
+            ),
+            default_auto_read_aloud_enabled=(
+                app_settings.USER_SETTINGS_AUTO_READ_ALOUD_ENABLED_DEFAULT
+            ),
+            default_preferred_expression_bias_enabled=(
+                app_settings.USER_SETTINGS_PREFERRED_EXPRESSION_BIAS_ENABLED_DEFAULT
+            ),
+            default_proactive_enabled=app_settings.USER_SETTINGS_PROACTIVE_ENABLED_DEFAULT,
+            default_timezone=app_settings.USER_SETTINGS_TIMEZONE_DEFAULT,
+        )
 
     def _schedule_turn_tts_warmup(
         self,
@@ -359,18 +394,7 @@ class TurnService:
             chat_history = history_messages[:-1]
         else:
             chat_history = history_messages
-        trace_context = None
-        extra = getattr(candidate, "extra", None)
-        if isinstance(extra, dict):
-            raw_context = extra.get("observability_context")
-            if isinstance(raw_context, dict):
-                trace_id = raw_context.get("trace_id")
-                parent_span_id = raw_context.get("parent_span_id")
-                if isinstance(trace_id, str) and isinstance(parent_span_id, str):
-                    trace_context = {
-                        "trace_id": trace_id,
-                        "parent_span_id": parent_span_id,
-                    }
+        trace_context = _extract_persisted_trace_context(candidate)
         workflow_context = start_workflow_observation(
             name="chat.turn.feedback_card",
             input_payload={
@@ -468,18 +492,7 @@ class TurnService:
                     f"candidate_id={candidate_id}"
                 ),
             )
-        trace_context = None
-        extra = getattr(candidate, "extra", None)
-        if isinstance(extra, dict):
-            raw_context = extra.get("observability_context")
-            if isinstance(raw_context, dict):
-                trace_id = raw_context.get("trace_id")
-                parent_span_id = raw_context.get("parent_span_id")
-                if isinstance(trace_id, str) and isinstance(parent_span_id, str):
-                    trace_context = {
-                        "trace_id": trace_id,
-                        "parent_span_id": parent_span_id,
-                    }
+        trace_context = _extract_persisted_trace_context(candidate)
 
         workflow_context = start_workflow_observation(
             name="chat.turn.reply_card",
@@ -886,24 +899,7 @@ class TurnService:
                     payload={"observability_context": workflow_trace_context},
                     commit=True,
                 )
-            user_settings = await self._user_settings_repo.get_or_create(
-                current_user.id,
-                default_font_size=app_settings.USER_SETTINGS_MESSAGE_FONT_SIZE_DEFAULT,
-                default_display_mode=app_settings.USER_SETTINGS_DISPLAY_MODE_DEFAULT,
-                default_memory_enabled=True,
-                default_reply_card_enabled=app_settings.USER_SETTINGS_REPLY_CARD_ENABLED_DEFAULT,
-                default_mixed_input_auto_translate_enabled=(
-                    app_settings.USER_SETTINGS_MIXED_INPUT_AUTO_TRANSLATE_ENABLED_DEFAULT
-                ),
-                default_auto_read_aloud_enabled=(
-                    app_settings.USER_SETTINGS_AUTO_READ_ALOUD_ENABLED_DEFAULT
-                ),
-                default_preferred_expression_bias_enabled=(
-                    app_settings.USER_SETTINGS_PREFERRED_EXPRESSION_BIAS_ENABLED_DEFAULT
-                ),
-                default_proactive_enabled=app_settings.USER_SETTINGS_PROACTIVE_ENABLED_DEFAULT,
-                default_timezone=app_settings.USER_SETTINGS_TIMEZONE_DEFAULT,
-            )
+            user_settings = await self._get_or_create_user_settings(current_user.id)
             memory_active = await self._subscription_service.has_feature(
                 current_user, "memory_feature"
             ) and bool(user_settings.memory_enabled)
@@ -1738,24 +1734,7 @@ class TurnService:
                     payload={"observability_context": workflow_trace_context},
                     commit=True,
                 )
-            user_settings = await self._user_settings_repo.get_or_create(
-                current_user.id,
-                default_font_size=app_settings.USER_SETTINGS_MESSAGE_FONT_SIZE_DEFAULT,
-                default_display_mode=app_settings.USER_SETTINGS_DISPLAY_MODE_DEFAULT,
-                default_memory_enabled=True,
-                default_reply_card_enabled=app_settings.USER_SETTINGS_REPLY_CARD_ENABLED_DEFAULT,
-                default_mixed_input_auto_translate_enabled=(
-                    app_settings.USER_SETTINGS_MIXED_INPUT_AUTO_TRANSLATE_ENABLED_DEFAULT
-                ),
-                default_auto_read_aloud_enabled=(
-                    app_settings.USER_SETTINGS_AUTO_READ_ALOUD_ENABLED_DEFAULT
-                ),
-                default_preferred_expression_bias_enabled=(
-                    app_settings.USER_SETTINGS_PREFERRED_EXPRESSION_BIAS_ENABLED_DEFAULT
-                ),
-                default_proactive_enabled=app_settings.USER_SETTINGS_PROACTIVE_ENABLED_DEFAULT,
-                default_timezone=app_settings.USER_SETTINGS_TIMEZONE_DEFAULT,
-            )
+            user_settings = await self._get_or_create_user_settings(current_user.id)
             memory_active = await self._subscription_service.has_feature(
                 current_user, "memory_feature"
             ) and bool(user_settings.memory_enabled)
@@ -2285,6 +2264,29 @@ class TurnService:
             await self._uow.rollback()
             raise
 
+    async def _carry_over_edit_images(self, user_turn_id: uuid.UUID) -> tuple[ChatImageRef, ...]:
+        all_cands = await self._candidate_repo.list_by_turn_id(turn_id=user_turn_id)
+        for cand in sorted(all_cands, key=lambda c: c.candidate_no):
+            chat_images_raw = (cand.extra or {}).get("chat_images")
+            original_refs = _materialize_chat_image_refs(chat_images_raw)
+            logger.info(
+                "Edit image carry-over scan.",
+                extra={
+                    "log_module": "chat",
+                    "event": "chat.image.edit_carry_over_scan",
+                    "operation": "chat.reply.edit",
+                    "turn_id": str(user_turn_id),
+                    "scanned_candidate_id": str(cand.id),
+                    "scanned_candidate_no": cand.candidate_no,
+                    "has_images": original_refs is not None,
+                    "carried_over_count": len(original_refs or []),
+                    "carried_over_keys": [r.image_key for r in (original_refs or [])],
+                },
+            )
+            if original_refs:
+                return tuple(original_refs)
+        return ()
+
     async def prepare_user_edit_stream(
         self,
         current_user: User,
@@ -2370,27 +2372,7 @@ class TurnService:
             # images from the earliest candidate that has them, so editing text does
             # not drop attachments across repeated edits.  Explicit `[]` clears them.
             if images is None and not normalized_images:
-                all_cands = await self._candidate_repo.list_by_turn_id(turn_id=user_turn_id)
-                for cand in sorted(all_cands, key=lambda c: c.candidate_no):
-                    chat_images_raw = (cand.extra or {}).get("chat_images")
-                    original_refs = _materialize_chat_image_refs(chat_images_raw)
-                    logger.info(
-                        "Edit image carry-over scan.",
-                        extra={
-                            "log_module": "chat",
-                            "event": "chat.image.edit_carry_over_scan",
-                            "operation": "chat.reply.edit",
-                            "turn_id": str(user_turn_id),
-                            "scanned_candidate_id": str(cand.id),
-                            "scanned_candidate_no": cand.candidate_no,
-                            "has_images": original_refs is not None,
-                            "carried_over_count": len(original_refs or []),
-                            "carried_over_keys": [r.image_key for r in (original_refs or [])],
-                        },
-                    )
-                    if original_refs:
-                        normalized_images = tuple(original_refs)
-                        break
+                normalized_images = await self._carry_over_edit_images(user_turn_id)
             elif images is not None:
                 logger.info(
                     "Edit images from request (no carry-over).",
@@ -2552,24 +2534,7 @@ class TurnService:
                     payload={"observability_context": workflow_trace_context},
                     commit=True,
                 )
-            user_settings = await self._user_settings_repo.get_or_create(
-                current_user.id,
-                default_font_size=app_settings.USER_SETTINGS_MESSAGE_FONT_SIZE_DEFAULT,
-                default_display_mode=app_settings.USER_SETTINGS_DISPLAY_MODE_DEFAULT,
-                default_memory_enabled=True,
-                default_reply_card_enabled=app_settings.USER_SETTINGS_REPLY_CARD_ENABLED_DEFAULT,
-                default_mixed_input_auto_translate_enabled=(
-                    app_settings.USER_SETTINGS_MIXED_INPUT_AUTO_TRANSLATE_ENABLED_DEFAULT
-                ),
-                default_auto_read_aloud_enabled=(
-                    app_settings.USER_SETTINGS_AUTO_READ_ALOUD_ENABLED_DEFAULT
-                ),
-                default_preferred_expression_bias_enabled=(
-                    app_settings.USER_SETTINGS_PREFERRED_EXPRESSION_BIAS_ENABLED_DEFAULT
-                ),
-                default_proactive_enabled=app_settings.USER_SETTINGS_PROACTIVE_ENABLED_DEFAULT,
-                default_timezone=app_settings.USER_SETTINGS_TIMEZONE_DEFAULT,
-            )
+            user_settings = await self._get_or_create_user_settings(current_user.id)
             memory_active = await self._subscription_service.has_feature(
                 current_user, "memory_feature"
             ) and bool(user_settings.memory_enabled)

@@ -522,22 +522,6 @@ class ChatService:
         self._character_llm_service = character_llm_service or CharacterLLMService()
         self._subscription_service = subscription_service
 
-    async def prepare_stream(
-        self,
-        current_user: User,
-        chat_id: uuid.UUID,
-        content: str,
-        images: list[ChatImageRef] | None = None,
-    ) -> _StreamPrep:
-        """Run all validations and create placeholder turns before SSE starts.
-
-        This must be executed before returning StreamingResponse so API errors
-        can be returned as normal JSON error envelopes (non-200).
-        """
-        return await self._prepare_stream(
-            current_user=current_user, chat_id=chat_id, content=content, images=images
-        )
-
     async def get_recent_chat_detail(
         self, current_user: User, character_id: uuid.UUID
     ) -> ChatDetailResponse | None:
@@ -1907,13 +1891,18 @@ class ChatService:
             logger.exception("Auto title generation failed; chat_id=%s", chat_id)
             return None
 
-    async def _prepare_stream(
+    async def prepare_stream(
         self,
         current_user: User,
         chat_id: uuid.UUID,
         content: str,
         images: list[ChatImageRef] | None = None,
     ) -> _StreamPrep:
+        """Run all validations and create placeholder turns before SSE starts.
+
+        This must be executed before returning StreamingResponse so API errors
+        can be returned as normal JSON error envelopes (non-200).
+        """
         timing: dict[str, float] = {}
         t0 = time.monotonic()
         # Lock the chat row to serialize turn_no assignment for this chat.

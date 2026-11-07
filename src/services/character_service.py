@@ -169,6 +169,27 @@ class CharacterService:
         self._memory_repo = memory_repo
         self._tts_registry = tts_registry or default_tts_registry
 
+    async def _require_character(self, character_id: uuid.UUID) -> Character:
+        character = await self._repo.get_by_id(character_id)
+        if not character:
+            raise APIError(
+                status_code=404,
+                code="character_not_found",
+                message=f"resource not found: character does not exist; character_id={character_id}",
+            )
+        return character
+
+    def _assert_creator(self, character: Character, current_user: User, action: str) -> None:
+        if character.creator_id != current_user.id:
+            raise APIError(
+                status_code=403,
+                code="character_modify_forbidden",
+                message=(
+                    f"authorization failed: only creator can {action} character; "
+                    f"character_id={character.id}"
+                ),
+            )
+
     def _normalize_legacy_system_voice(
         self,
         *,
@@ -497,13 +518,7 @@ class CharacterService:
         *,
         current_user: User | None,
     ) -> CharacterResponse:
-        character = await self._repo.get_by_id(character_id)
-        if not character:
-            raise APIError(
-                status_code=404,
-                code="character_not_found",
-                message=f"resource not found: character does not exist; character_id={character_id}",
-            )
+        character = await self._require_character(character_id)
 
         voice_item = await self._resolve_character_voice_item(character)
         distinct_user_count = await self._repo.count_distinct_users_by_character(character.id)
@@ -522,23 +537,9 @@ class CharacterService:
         character_in: CharacterUpdate,
         current_user: User,
     ) -> CharacterResponse:
-        character = await self._repo.get_by_id(character_id)
-        if not character:
-            raise APIError(
-                status_code=404,
-                code="character_not_found",
-                message=f"resource not found: character does not exist; character_id={character_id}",
-            )
+        character = await self._require_character(character_id)
 
-        if character.creator_id != current_user.id:
-            raise APIError(
-                status_code=403,
-                code="character_modify_forbidden",
-                message=(
-                    "authorization failed: only creator can modify character; "
-                    f"character_id={character_id}"
-                ),
-            )
+        self._assert_creator(character, current_user, "modify")
 
         update_data = character_in.model_dump(exclude_unset=True)
         if "visibility" in update_data and update_data["visibility"] is not None:
@@ -616,23 +617,9 @@ class CharacterService:
         *,
         current_user: User,
     ) -> CharacterResponse:
-        character = await self._repo.get_by_id(character_id)
-        if not character:
-            raise APIError(
-                status_code=404,
-                code="character_not_found",
-                message=f"resource not found: character does not exist; character_id={character_id}",
-            )
+        character = await self._require_character(character_id)
 
-        if character.creator_id != current_user.id:
-            raise APIError(
-                status_code=403,
-                code="character_modify_forbidden",
-                message=(
-                    "authorization failed: only creator can unpublish character; "
-                    f"character_id={character_id}"
-                ),
-            )
+        self._assert_creator(character, current_user, "unpublish")
 
         unpublished = await self._repo.unpublish(character)
         selected_voice = await self._resolve_character_voice_item(unpublished)
@@ -656,23 +643,9 @@ class CharacterService:
         a purge failure never blocks deletion because every memory query
         scopes by character_id, so leftover vectors stay unreachable.
         """
-        character = await self._repo.get_by_id(character_id)
-        if not character:
-            raise APIError(
-                status_code=404,
-                code="character_not_found",
-                message=f"resource not found: character does not exist; character_id={character_id}",
-            )
+        character = await self._require_character(character_id)
 
-        if character.creator_id != current_user.id:
-            raise APIError(
-                status_code=403,
-                code="character_modify_forbidden",
-                message=(
-                    "authorization failed: only creator can delete character; "
-                    f"character_id={character_id}"
-                ),
-            )
+        self._assert_creator(character, current_user, "delete")
 
         await self._repo.delete(character)
 
@@ -691,23 +664,9 @@ class CharacterService:
         *,
         current_user: User,
     ) -> CharacterResponse:
-        character = await self._repo.get_by_id(character_id)
-        if not character:
-            raise APIError(
-                status_code=404,
-                code="character_not_found",
-                message=f"resource not found: character does not exist; character_id={character_id}",
-            )
+        character = await self._require_character(character_id)
 
-        if character.creator_id != current_user.id:
-            raise APIError(
-                status_code=403,
-                code="character_modify_forbidden",
-                message=(
-                    "authorization failed: only creator can publish character; "
-                    f"character_id={character_id}"
-                ),
-            )
+        self._assert_creator(character, current_user, "publish")
 
         published = await self._repo.publish(character)
         selected_voice = await self._resolve_character_voice_item(published)
