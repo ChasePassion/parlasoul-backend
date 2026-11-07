@@ -6,7 +6,7 @@ import asyncio
 import math
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -382,20 +382,7 @@ class AudioPacer:
     async def stats_snapshot(self) -> AudioPacerStats:
         async with self._lock:
             self._update_buffered_ms_locked()
-            return AudioPacerStats(
-                generation_id=self._stats.generation_id,
-                buffered_ms=self._stats.buffered_ms,
-                peak_buffered_ms=self._stats.peak_buffered_ms,
-                underrun_count=self._stats.underrun_count,
-                partial_pad_count=self._stats.partial_pad_count,
-                frames_read=self._stats.frames_read,
-                silence_frames=self._stats.silence_frames,
-                rejected_write_count=self._stats.rejected_write_count,
-                fadeout_count=self._stats.fadeout_count,
-                first_audio_enqueued_ms=self._stats.first_audio_enqueued_ms,
-                first_audio_read_ms=self._stats.first_audio_read_ms,
-                drained_ms=self._stats.drained_ms,
-            )
+            return replace(self._stats)
 
     def _resolve_generation(self, generation_id: int | None) -> int:
         return self._current_generation_id if generation_id is None else generation_id

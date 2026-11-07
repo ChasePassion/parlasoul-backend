@@ -26,7 +26,6 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from src.core.exceptions import APIError
 from src.repositories.voice_gateway_repository import (
     _extract_event_message,
     _extract_event_type,
@@ -290,13 +289,10 @@ def open_streaming_stt(
     model = str(getattr(repo, "_stt_model", "") or "")
     if not model.strip().lower().startswith("qwen3-asr-flash-realtime"):
         return None
-    try:
-        api_key = repo._require_api_key()  # noqa: SLF001
-        ws_url = repo._stt_realtime_ws_url  # noqa: SLF001
-        timeout_seconds = repo._stt_timeout_seconds()  # noqa: SLF001
-        connect_factory = repo._connect  # noqa: SLF001
-    except APIError:
-        raise
+    api_key = repo._require_api_key()  # noqa: SLF001
+    ws_url = repo._stt_realtime_ws_url  # noqa: SLF001
+    timeout_seconds = repo._stt_timeout_seconds()  # noqa: SLF001
+    connect_factory = repo._connect  # noqa: SLF001
     url = f"{ws_url}?model={model}" if "?" not in ws_url else f"{ws_url}&model={model}"
     return StreamingSTTSession(
         ws_url=url,

@@ -272,8 +272,6 @@ class SentenceSegmenter:
     def _is_sentence_ender(self, char: str) -> bool:
         if self.config.language == "en":
             return char in _ENGLISH_SENTENCE_ENDERS
-        if self.config.language == "zh":
-            return char in _CHINESE_SENTENCE_ENDERS or char in _ENGLISH_SENTENCE_ENDERS
         return char in _CHINESE_SENTENCE_ENDERS or char in _ENGLISH_SENTENCE_ENDERS
 
     def _is_special_case(self, text_before: str, text_after: str, punctuation: str) -> bool:
