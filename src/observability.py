@@ -499,14 +499,7 @@ def _update_current_generation(**kwargs: Any) -> None:
         fallback(**kwargs)
 
 
-def _request_metadata(request: LLMCallRequest, llm_call_id: str) -> dict[str, Any]:
-    metadata = {
-        "llm_call_id": llm_call_id,
-        "operation": request.operation,
-        "route_role": request.route_role,
-        "model": build_model_label(provider=request.provider, model=request.model),
-        "sdk_kind": request.sdk_kind,
-    }
+def _fill_context_ids(metadata: dict[str, Any], request: LLMCallRequest | VoiceCallRequest) -> None:
     if request.chat_id:
         metadata["chat_id"] = request.chat_id
     if request.turn_id:
@@ -516,6 +509,17 @@ def _request_metadata(request: LLMCallRequest, llm_call_id: str) -> dict[str, An
     if request.character_id:
         metadata["character_id"] = request.character_id
     metadata.update(request.metadata)
+
+
+def _request_metadata(request: LLMCallRequest, llm_call_id: str) -> dict[str, Any]:
+    metadata = {
+        "llm_call_id": llm_call_id,
+        "operation": request.operation,
+        "route_role": request.route_role,
+        "model": build_model_label(provider=request.provider, model=request.model),
+        "sdk_kind": request.sdk_kind,
+    }
+    _fill_context_ids(metadata, request)
     return metadata
 
 
@@ -526,15 +530,7 @@ def _voice_request_metadata(request: VoiceCallRequest, voice_call_id: str) -> di
         "provider": request.provider,
         "model": build_model_label(provider=request.provider, model=request.model),
     }
-    if request.chat_id:
-        metadata["chat_id"] = request.chat_id
-    if request.turn_id:
-        metadata["turn_id"] = request.turn_id
-    if request.candidate_id:
-        metadata["candidate_id"] = request.candidate_id
-    if request.character_id:
-        metadata["character_id"] = request.character_id
-    metadata.update(request.metadata)
+    _fill_context_ids(metadata, request)
     return metadata
 
 

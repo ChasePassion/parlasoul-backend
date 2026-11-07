@@ -39,7 +39,7 @@ class ImageProcessingService:
                 message="internal error: Pillow AVIF support is unavailable",
             )
 
-    async def build_avatar_variants(self, original_bytes: bytes) -> list[ImageVariant]:
+    def _assert_upload_size_allowed(self, original_bytes: bytes) -> None:
         if len(original_bytes) > self._settings.MEDIA_MAX_UPLOAD_BYTES:
             limit_mb = max(1, self._settings.MEDIA_MAX_UPLOAD_BYTES // 1024 // 1024)
             raise APIError(
@@ -47,39 +47,35 @@ class ImageProcessingService:
                 code=ErrorCode.UPLOAD_FILE_TOO_LARGE,
                 message=f"invalid upload: file size exceeds limit; limit_mb={limit_mb}",
             )
+
+    @staticmethod
+    def _flatten_to_rgb(image: Image.Image) -> Image.Image:
+        # AVIF variants are delivered without alpha, so transparency is composited onto white.
+        if image.mode not in ("RGB", "RGBA"):
+            image = image.convert("RGBA")
+        if image.mode == "RGBA":
+            canvas = Image.new("RGB", image.size, (255, 255, 255))
+            canvas.paste(image, mask=image.getchannel("A"))
+            return canvas
+        return image.convert("RGB")
+
+    async def build_avatar_variants(self, original_bytes: bytes) -> list[ImageVariant]:
+        self._assert_upload_size_allowed(original_bytes)
 
         return await anyio.to_thread.run_sync(self._build_avatar_variants_sync, original_bytes)
 
     async def convert_to_avif(self, original_bytes: bytes) -> bytes:
         """将任意格式图片转为 AVIF，不做缩放。"""
-        if len(original_bytes) > self._settings.MEDIA_MAX_UPLOAD_BYTES:
-            limit_mb = max(1, self._settings.MEDIA_MAX_UPLOAD_BYTES // 1024 // 1024)
-            raise APIError(
-                status_code=413,
-                code=ErrorCode.UPLOAD_FILE_TOO_LARGE,
-                message=f"invalid upload: file size exceeds limit; limit_mb={limit_mb}",
-            )
+        self._assert_upload_size_allowed(original_bytes)
         return await anyio.to_thread.run_sync(self._convert_to_avif_sync, original_bytes)
 
     async def build_display_variant(self, original_bytes: bytes, max_dimension: int = 1024) -> ImageVariant:
         """生成单个展示用 AVIF 变体（长边不超过 max_dimension）。"""
-        if len(original_bytes) > self._settings.MEDIA_MAX_UPLOAD_BYTES:
-            limit_mb = max(1, self._settings.MEDIA_MAX_UPLOAD_BYTES // 1024 // 1024)
-            raise APIError(
-                status_code=413,
-                code=ErrorCode.UPLOAD_FILE_TOO_LARGE,
-                message=f"invalid upload: file size exceeds limit; limit_mb={limit_mb}",
-            )
+        self._assert_upload_size_allowed(original_bytes)
         return await anyio.to_thread.run_sync(self._build_display_variant_sync, original_bytes, max_dimension)
 
     async def inspect_image(self, original_bytes: bytes) -> ImageDimensions:
-        if len(original_bytes) > self._settings.MEDIA_MAX_UPLOAD_BYTES:
-            limit_mb = max(1, self._settings.MEDIA_MAX_UPLOAD_BYTES // 1024 // 1024)
-            raise APIError(
-                status_code=413,
-                code=ErrorCode.UPLOAD_FILE_TOO_LARGE,
-                message=f"invalid upload: file size exceeds limit; limit_mb={limit_mb}",
-            )
+        self._assert_upload_size_allowed(original_bytes)
 
         return await anyio.to_thread.run_sync(self._inspect_image_sync, original_bytes)
 
@@ -116,14 +112,7 @@ class ImageProcessingService:
             with Image.open(io.BytesIO(original_bytes)) as source:
                 source.load()
                 normalized = ImageOps.exif_transpose(source)
-                if normalized.mode not in ("RGB", "RGBA"):
-                    normalized = normalized.convert("RGBA")
-                if normalized.mode == "RGBA":
-                    canvas = Image.new("RGB", normalized.size, (255, 255, 255))
-                    canvas.paste(normalized, mask=normalized.getchannel("A"))
-                    normalized = canvas
-                else:
-                    normalized = normalized.convert("RGB")
+                normalized = self._flatten_to_rgb(normalized)
                 output = io.BytesIO()
                 normalized.save(
                     output,
@@ -144,14 +133,7 @@ class ImageProcessingService:
             with Image.open(io.BytesIO(original_bytes)) as source:
                 source.load()
                 normalized = ImageOps.exif_transpose(source)
-                if normalized.mode not in ("RGB", "RGBA"):
-                    normalized = normalized.convert("RGBA")
-                if normalized.mode == "RGBA":
-                    canvas = Image.new("RGB", normalized.size, (255, 255, 255))
-                    canvas.paste(normalized, mask=normalized.getchannel("A"))
-                    normalized = canvas
-                else:
-                    normalized = normalized.convert("RGB")
+                normalized = self._flatten_to_rgb(normalized)
                 w, h = normalized.size
                 ratio = min(max_dimension / max(w, h), 1.0)
                 if ratio < 1.0:
@@ -190,14 +172,7 @@ class ImageProcessingService:
                     )
 
                 normalized = ImageOps.exif_transpose(source)
-                if normalized.mode not in ("RGB", "RGBA"):
-                    normalized = normalized.convert("RGBA")
-                if normalized.mode == "RGBA":
-                    canvas = Image.new("RGB", normalized.size, (255, 255, 255))
-                    canvas.paste(normalized, mask=normalized.getchannel("A"))
-                    normalized = canvas
-                else:
-                    normalized = normalized.convert("RGB")
+                normalized = self._flatten_to_rgb(normalized)
 
                 variants: list[ImageVariant] = []
                 for size in self._settings.media_image_variants_list:

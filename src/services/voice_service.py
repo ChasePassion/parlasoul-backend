@@ -273,6 +273,28 @@ class VoiceService:
 
         return mime_type, _audio_generator()
 
+    @staticmethod
+    async def _audio_delta_events(
+        stream: AsyncGenerator[tuple[str, str], None],
+        assistant_candidate_id: str,
+        emit_done: bool,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        seq = 0
+        async for audio_b64, mime_type in stream:
+            seq += 1
+            yield {
+                "type": "tts_audio_delta",
+                "assistant_candidate_id": assistant_candidate_id,
+                "seq": seq,
+                "audio_b64": audio_b64,
+                "mime_type": mime_type,
+            }
+        if emit_done:
+            yield {
+                "type": "tts_audio_done",
+                "assistant_candidate_id": assistant_candidate_id,
+            }
+
     async def stream_tts_sse_events(
         self,
         *,
@@ -287,8 +309,7 @@ class VoiceService:
         voice_source_type: str = VoiceSourceType.SYSTEM.value,
         voice_profile: dict[str, Any] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        seq = 0
-        async for audio_b64, mime_type in self._tts_gateway_service.stream_tts_audio_base64(
+        stream = self._tts_gateway_service.stream_tts_audio_base64(
             text=text,
             audio_format=audio_format,
             instructions=instructions or settings.DASHSCOPE_TTS_INSTRUCTIONS_DEFAULT or None,
@@ -297,20 +318,9 @@ class VoiceService:
             provider_model=provider_model,
             voice_source_type=voice_source_type,
             voice_profile=voice_profile,
-        ):
-            seq += 1
-            yield {
-                "type": "tts_audio_delta",
-                "assistant_candidate_id": assistant_candidate_id,
-                "seq": seq,
-                "audio_b64": audio_b64,
-                "mime_type": mime_type,
-            }
-        if emit_done:
-            yield {
-                "type": "tts_audio_done",
-                "assistant_candidate_id": assistant_candidate_id,
-            }
+        )
+        async for event in self._audio_delta_events(stream, assistant_candidate_id, emit_done):
+            yield event
 
     async def stream_tts_sse_events_from_segments(
         self,
@@ -326,11 +336,7 @@ class VoiceService:
         voice_source_type: str = VoiceSourceType.SYSTEM.value,
         voice_profile: dict[str, Any] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        seq = 0
-        async for (
-            audio_b64,
-            mime_type,
-        ) in self._tts_gateway_service.stream_tts_audio_base64_from_segments(
+        stream = self._tts_gateway_service.stream_tts_audio_base64_from_segments(
             segments_queue=segments_queue,
             audio_format=audio_format,
             instructions=instructions or settings.DASHSCOPE_TTS_INSTRUCTIONS_DEFAULT or None,
@@ -339,20 +345,9 @@ class VoiceService:
             provider_model=provider_model,
             voice_source_type=voice_source_type,
             voice_profile=voice_profile,
-        ):
-            seq += 1
-            yield {
-                "type": "tts_audio_delta",
-                "assistant_candidate_id": assistant_candidate_id,
-                "seq": seq,
-                "audio_b64": audio_b64,
-                "mime_type": mime_type,
-            }
-        if emit_done:
-            yield {
-                "type": "tts_audio_done",
-                "assistant_candidate_id": assistant_candidate_id,
-            }
+        )
+        async for event in self._audio_delta_events(stream, assistant_candidate_id, emit_done):
+            yield event
 
     async def warm_tts_sse_events_from_segments(
         self,
