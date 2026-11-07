@@ -441,6 +441,8 @@ def get_voice_service(
     tts_gateway_service: TTSGatewayService = Depends(get_tts_gateway_service),
     candidate_repo: CandidateRepository = Depends(get_candidate_repository),
     character_repo: CharacterRepository = Depends(get_character_repository),
+    chat_repo: ChatRepository = Depends(get_chat_repository),
+    turn_repo: TurnRepository = Depends(get_turn_repository),
 ):
     """Centralized provider for VoiceService."""
     from src.services.voice_service import VoiceService
@@ -449,6 +451,8 @@ def get_voice_service(
         voice_gateway_repo=voice_gateway_repo,
         candidate_repo=candidate_repo,
         character_repo=character_repo,
+        chat_repo=chat_repo,
+        turn_repo=turn_repo,
         tts_gateway_service=tts_gateway_service,
     )
 

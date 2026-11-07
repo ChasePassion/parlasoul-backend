@@ -19,6 +19,8 @@ from src.core.tts_registry import (
 from src.db.models import User, VoiceSourceType
 from src.repositories.candidate_repository import CandidateRepository
 from src.repositories.character_repository import CharacterRepository
+from src.repositories.chat_repository import ChatRepository
+from src.repositories.turn_repository import TurnRepository
 from src.repositories.voice_gateway_repository import VoiceGatewayRepository
 from src.schemas.voice import STTTranscriptionResult
 from src.services.tts_gateway_service import TTSGatewayService
@@ -54,6 +56,8 @@ class VoiceService:
         voice_gateway_repo: VoiceGatewayRepository,
         candidate_repo: CandidateRepository,
         character_repo: CharacterRepository | None = None,
+        chat_repo: ChatRepository | None = None,
+        turn_repo: TurnRepository | None = None,
         *,
         tts_gateway_service: TTSGatewayService | None = None,
     ) -> None:
@@ -63,6 +67,78 @@ class VoiceService:
         )
         self._candidate_repo = candidate_repo
         self._character_repo = character_repo
+        self._chat_repo = chat_repo
+        self._turn_repo = turn_repo
+
+    async def _build_stt_context(
+        self,
+        *,
+        chat_id: uuid.UUID | None,
+        current_user_id: uuid.UUID | None,
+    ) -> list[dict[str, str]]:
+        """Build domain context so the ASR model recognizes character names.
+
+        History loading reuses the canonical loader in chat_service; the import
+        is local because chat_service imports VoiceService at module scope.
+        """
+        if chat_id is None or self._chat_repo is None or self._character_repo is None:
+            return []
+        chat = await self._chat_repo.get_by_id(chat_id)
+        if chat is None:
+            return []
+        if current_user_id is not None and chat.user_id != current_user_id:
+            return []
+
+        domain_text = ""
+        character = await self._character_repo.get_by_id(chat.character_id)
+        if character is not None:
+            parts: list[str] = []
+            name = (character.name or "").strip()
+            description = (character.description or "").strip()
+            if name:
+                parts.append(f"角色名：{name}")
+            if description:
+                parts.append(description[:160])
+            # The upstream API caps a context turn (user + assistant text) at
+            # 400 characters, so keep each side within half of that budget.
+            domain_text = " ".join(parts)[:200]
+
+        history: list[dict[str, str]] = []
+        if self._turn_repo is not None:
+            from src.services.chat_service import (
+                _load_llm_history_messages_from_leaf,
+                _text_only_chat_history,
+            )
+
+            max_turns = max(1, int(settings.DASHSCOPE_STT_CONTEXT_MAX_TURNS))
+            raw_history = await _load_llm_history_messages_from_leaf(
+                self._turn_repo,
+                self._candidate_repo,
+                chat.id,
+                chat.active_leaf_turn_id or chat.last_turn_id,
+                max_turns * 2,
+            )
+            for message in _text_only_chat_history(raw_history):
+                history.append(
+                    {"role": message["role"], "text": message["content"][:200]}
+                )
+            history = history[-(max_turns * 2) :]
+            # Every context turn must start with a user message; a character
+            # greeting at the head of the branch has no paired user text.
+            while history and history[0]["role"] != "user":
+                history.pop(0)
+
+        if not history:
+            return [{"role": "user", "text": domain_text}] if domain_text else []
+        if domain_text:
+            for index, item in enumerate(history):
+                if item["role"] == "user":
+                    merged = f"{domain_text} {item['text']}".strip()
+                    history[index] = {"role": "user", "text": merged[:200]}
+                    break
+            else:
+                history.insert(0, {"role": "user", "text": domain_text})
+        return history
 
     async def transcribe_audio(
         self,
@@ -70,15 +146,35 @@ class VoiceService:
         audio_bytes: bytes,
         audio_format: str,
         sample_rate: int,
+        chat_id: uuid.UUID | None = None,
+        current_user_id: uuid.UUID | None = None,
     ) -> STTTranscriptionResult:
-        text, request_id = await self._voice_gateway_repo.transcribe_audio(
-            audio_bytes=audio_bytes,
-            audio_format=audio_format,
-            sample_rate=sample_rate,
-        )
+        http_model = settings.DASHSCOPE_STT_HTTP_MODEL.strip()
+        # The synchronous HTTP model accepts wav/pcm. Other declared formats
+        # stay on the realtime websocket transport so the endpoint contract is
+        # preserved; this is format routing, not a failure fallback.
+        if http_model and audio_format.strip().lower() in {"wav", "pcm"}:
+            context_messages = await self._build_stt_context(
+                chat_id=chat_id,
+                current_user_id=current_user_id,
+            )
+            text, request_id = await self._voice_gateway_repo.transcribe_audio_http(
+                audio_bytes=audio_bytes,
+                audio_format=audio_format,
+                sample_rate=sample_rate,
+                context_messages=context_messages,
+            )
+            model = http_model
+        else:
+            text, request_id = await self._voice_gateway_repo.transcribe_audio(
+                audio_bytes=audio_bytes,
+                audio_format=audio_format,
+                sample_rate=sample_rate,
+            )
+            model = settings.DASHSCOPE_STT_MODEL
         return STTTranscriptionResult(
             text=text,
-            model=settings.DASHSCOPE_STT_MODEL,
+            model=model,
             request_id=request_id,
         )
 
