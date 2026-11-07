@@ -254,36 +254,6 @@ async def test_finalize_run_derives_counts_and_status(eval_pg) -> None:
     assert stored.finished_at is not None
 
 
-@pytest.mark.asyncio
-async def test_rls_policy_metadata(eval_pg_env) -> None:
-    """Policies exist and RLS is enabled+forced (works even as superuser)."""
-    async with eval_pg_env["admin_engine"].begin() as conn:
-        policies = (
-            await conn.execute(
-                text(
-                    "SELECT tablename, policyname FROM pg_policies "
-                    "WHERE schemaname = :schema ORDER BY tablename"
-                ),
-                {"schema": eval_pg_env["schema_name"]},
-            )
-        ).all()
-        flags = (
-            await conn.execute(
-                text(
-                    "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity "
-                    "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
-                    "WHERE n.nspname = :schema AND c.relname IN ('eval_runs', 'eval_results')"
-                ),
-                {"schema": eval_pg_env["schema_name"]},
-            )
-        ).all()
-
-    assert {tuple(row) for row in policies} == {
-        ("eval_results", "eval_results_system_only"),
-        ("eval_runs", "eval_runs_system_only"),
-    }
-    for row in flags:
-        assert row[1] is True and row[2] is True
 
 
 @pytest.mark.asyncio

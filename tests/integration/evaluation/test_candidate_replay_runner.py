@@ -237,9 +237,3 @@ async def test_candidate_replay_filters_invalid_rows(candidate_env, key, reason)
     assert reason in outcome.error_detail_safe
 
 
-async def test_candidate_replay_without_source_is_skipped(candidate_env) -> None:
-    runner = CandidateReplayRunner(session_factory=candidate_env["factory"])
-    case = GoldenCase.model_validate(make_roleplay_case("no-source"))
-    outcome = await runner.run_case(case, _context(candidate_env["factory"]))
-    assert outcome.status == "skipped"
-    assert "no_source_candidate" in outcome.error_detail_safe

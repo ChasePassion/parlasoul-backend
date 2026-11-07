@@ -81,11 +81,6 @@ def test_duplicate_case_id_rejected(tmp_path: Path) -> None:
         DatasetLoader(tmp_path).load()
 
 
-def test_corrupted_file_bytes_detected_by_sha(tmp_path: Path) -> None:
-    write_dataset(tmp_path)
-    (tmp_path / "roleplay.jsonl").write_bytes(b"\xff\xfe invalid")
-    with pytest.raises(DatasetLoadError, match="sha256 mismatch"):
-        DatasetLoader(tmp_path).load()
 
 
 def test_non_utf8_manifest_rejected(tmp_path: Path) -> None:

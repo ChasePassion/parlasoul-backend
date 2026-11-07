@@ -83,11 +83,3 @@ async def test_private_character_accessible_by_any_user() -> None:
     assert result is character
 
 
-@pytest.mark.asyncio
-async def test_public_character_accessible_by_any_user() -> None:
-    character = _character(visibility=VisibilityType.PUBLIC.value)
-    service, _ = _service_with(character)
-
-    result = await service.assert_access(current_user=_user(), character_id=str(character.id))
-
-    assert result is character

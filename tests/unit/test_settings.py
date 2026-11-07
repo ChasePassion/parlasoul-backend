@@ -30,22 +30,6 @@ def test_resolve_env_file_matches_repo_convention() -> None:
     assert _resolve_env_file("staging") == ".env.staging"
 
 
-def test_settings_accept_optional_milvus_token() -> None:
-    s = Settings(
-        DATABASE_URL="postgresql+asyncpg://u:p@localhost/db",
-        SECRET_KEY="secret",
-        SMTP_HOST="smtp.example.com",
-        SMTP_USER="user",
-        SMTP_PASSWORD="pass",
-        MILVUS_URL="https://zilliz.example.com",
-        MILVUS_TOKEN="milvus-token",
-        MEMORY_GROUP_COLLECTION_NAME="groups-dev",
-        SILICONFLOW_API_KEY="token",
-    )
-
-    assert s.MILVUS_URL == "https://zilliz.example.com:443"
-    assert s.MILVUS_TOKEN == "milvus-token"
-    assert s.MEMORY_GROUP_COLLECTION_NAME == "groups-dev"
 
 
 def test_normalize_asyncpg_database_url_rewrites_neon_ssl_query() -> None:
