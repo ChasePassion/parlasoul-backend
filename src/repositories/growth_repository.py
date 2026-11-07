@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import date
+from typing import TypeVar
 
 from sqlalchemy import asc, desc, func, select
 from sqlalchemy.exc import IntegrityError
@@ -17,6 +19,10 @@ from src.db.models import (
     GrowthShareTrigger,
     GrowthUserStats,
 )
+
+_StatsT = TypeVar("_StatsT")
+
+
 class GrowthRepository:
     def __init__(self, db: AsyncSession):
         self._db = db
@@ -24,6 +30,28 @@ class GrowthRepository:
     @staticmethod
     def _maybe_for_update(stmt, *, for_update: bool):
         return stmt.with_for_update() if for_update else stmt
+
+    async def _get_or_create(
+        self,
+        *,
+        fetch: Callable[[], Awaitable[_StatsT | None]],
+        create: Callable[[], _StatsT],
+        missing_message: str,
+    ) -> _StatsT:
+        stats = await fetch()
+        if stats:
+            return stats
+        try:
+            async with self._db.begin_nested():
+                stats = create()
+                self._db.add(stats)
+                await self._db.flush()
+        except IntegrityError:
+            pass
+        stats = await fetch()
+        if stats is None:
+            raise RuntimeError(missing_message)
+        return stats
 
     async def get_user_stats(self, user_id: uuid.UUID, *, for_update: bool = False) -> GrowthUserStats | None:
         stmt = self._maybe_for_update(
@@ -33,20 +61,11 @@ class GrowthRepository:
         return (await self._db.execute(stmt)).scalars().first()
 
     async def get_or_create_user_stats(self, user_id: uuid.UUID, *, for_update: bool = False) -> GrowthUserStats:
-        stats = await self.get_user_stats(user_id, for_update=for_update)
-        if stats:
-            return stats
-        try:
-            async with self._db.begin_nested():
-                stats = GrowthUserStats(user_id=user_id)
-                self._db.add(stats)
-                await self._db.flush()
-        except IntegrityError:
-            pass
-        stats = await self.get_user_stats(user_id, for_update=for_update)
-        if stats is None:
-            raise RuntimeError(f"growth_user_stats row missing after get_or_create; user_id={user_id}")
-        return stats
+        return await self._get_or_create(
+            fetch=lambda: self.get_user_stats(user_id, for_update=for_update),
+            create=lambda: GrowthUserStats(user_id=user_id),
+            missing_message=f"growth_user_stats row missing after get_or_create; user_id={user_id}",
+        )
 
     async def get_daily_stats(self, user_id: uuid.UUID, stat_date: date, *, for_update: bool = False) -> GrowthDailyStats | None:
         stmt = self._maybe_for_update(select(GrowthDailyStats).where(
@@ -62,22 +81,13 @@ class GrowthRepository:
         *,
         for_update: bool = False,
     ) -> GrowthDailyStats:
-        stats = await self.get_daily_stats(user_id, stat_date, for_update=for_update)
-        if stats:
-            return stats
-        try:
-            async with self._db.begin_nested():
-                stats = GrowthDailyStats(id=uuid.uuid4(), user_id=user_id, stat_date=stat_date)
-                self._db.add(stats)
-                await self._db.flush()
-        except IntegrityError:
-            pass
-        stats = await self.get_daily_stats(user_id, stat_date, for_update=for_update)
-        if stats is None:
-            raise RuntimeError(
+        return await self._get_or_create(
+            fetch=lambda: self.get_daily_stats(user_id, stat_date, for_update=for_update),
+            create=lambda: GrowthDailyStats(id=uuid.uuid4(), user_id=user_id, stat_date=stat_date),
+            missing_message=(
                 f"growth_daily_stats row missing after get_or_create; user_id={user_id}; stat_date={stat_date}"
-            )
-        return stats
+            ),
+        )
 
     async def list_daily_stats_range(
         self,
@@ -145,28 +155,21 @@ class GrowthRepository:
         *,
         for_update: bool = False,
     ) -> GrowthCharacterDailyStats:
-        stats = await self.get_character_daily_stats(user_id, character_id, stat_date, for_update=for_update)
-        if stats:
-            return stats
-        try:
-            async with self._db.begin_nested():
-                stats = GrowthCharacterDailyStats(
-                    id=uuid.uuid4(),
-                    user_id=user_id,
-                    character_id=character_id,
-                    stat_date=stat_date,
-                )
-                self._db.add(stats)
-                await self._db.flush()
-        except IntegrityError:
-            pass
-        stats = await self.get_character_daily_stats(user_id, character_id, stat_date, for_update=for_update)
-        if stats is None:
-            raise RuntimeError(
+        return await self._get_or_create(
+            fetch=lambda: self.get_character_daily_stats(
+                user_id, character_id, stat_date, for_update=for_update
+            ),
+            create=lambda: GrowthCharacterDailyStats(
+                id=uuid.uuid4(),
+                user_id=user_id,
+                character_id=character_id,
+                stat_date=stat_date,
+            ),
+            missing_message=(
                 "growth_character_daily_stats row missing after get_or_create; "
                 f"user_id={user_id}; character_id={character_id}; stat_date={stat_date}"
-            )
-        return stats
+            ),
+        )
 
     async def get_character_stats(
         self,
@@ -188,22 +191,16 @@ class GrowthRepository:
         *,
         for_update: bool = False,
     ) -> GrowthCharacterStats:
-        stats = await self.get_character_stats(user_id, character_id, for_update=for_update)
-        if stats:
-            return stats
-        try:
-            async with self._db.begin_nested():
-                stats = GrowthCharacterStats(id=uuid.uuid4(), user_id=user_id, character_id=character_id)
-                self._db.add(stats)
-                await self._db.flush()
-        except IntegrityError:
-            pass
-        stats = await self.get_character_stats(user_id, character_id, for_update=for_update)
-        if stats is None:
-            raise RuntimeError(
-                f"growth_character_stats row missing after get_or_create; user_id={user_id}; character_id={character_id}"
-            )
-        return stats
+        return await self._get_or_create(
+            fetch=lambda: self.get_character_stats(user_id, character_id, for_update=for_update),
+            create=lambda: GrowthCharacterStats(
+                id=uuid.uuid4(), user_id=user_id, character_id=character_id
+            ),
+            missing_message=(
+                "growth_character_stats row missing after get_or_create; "
+                f"user_id={user_id}; character_id={character_id}"
+            ),
+        )
 
     async def list_character_stats(
         self,
