@@ -35,24 +35,16 @@ def test_character_update_rejects_tags_field() -> None:
     assert exc.value.errors()[0]["type"] == "extra_forbidden"
 
 
-def test_character_create_accepts_llm_preset_and_dialogue_style() -> None:
-    payload = _build_character_create(
-        llm_preset_id="flagship",
-        dialogue_style_id="spring_breeze",
-    )
+def test_character_create_accepts_llm_preset() -> None:
+    payload = _build_character_create(llm_preset_id="flagship")
 
     assert payload.llm_preset_id == "flagship"
-    assert payload.dialogue_style_id == "spring_breeze"
 
 
-def test_character_update_accepts_llm_preset_and_dialogue_style() -> None:
-    payload = CharacterUpdate(
-        llm_preset_id="free",
-        dialogue_style_id="proud_resolve",
-    )
+def test_character_update_accepts_llm_preset() -> None:
+    payload = CharacterUpdate(llm_preset_id="free")
 
     assert payload.llm_preset_id == "free"
-    assert payload.dialogue_style_id == "proud_resolve"
 
 
 def test_character_create_rejects_unknown_llm_preset() -> None:
@@ -70,9 +62,8 @@ def test_character_create_rejects_null_llm_preset() -> None:
     assert exc.value.errors()[0]["type"] == "string_type"
 
 
-def test_character_update_rejects_unknown_dialogue_style() -> None:
+def test_character_update_rejects_removed_dialogue_style_field() -> None:
     with pytest.raises(ValidationError) as exc:
         CharacterUpdate(dialogue_style_id="overpowered")
 
-    assert exc.value.errors()[0]["type"] == "value_error"
-    assert exc.value.errors()[0]["loc"] == ("dialogue_style_id",)
+    assert exc.value.errors()[0]["type"] == "extra_forbidden"

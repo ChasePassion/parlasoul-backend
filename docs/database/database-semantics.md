@@ -393,7 +393,7 @@ sequenceDiagram
 #### [characters](#table-characters)
 
 - 表职责
-  - 保存角色的人设、展示信息、语音绑定、LLM 预设和对话风格。
+  - 保存角色的人设、展示信息、语音绑定和 LLM 预设。
 - 表协作
   - 由 `CharacterService` 创建与更新。
   - 与 [`voice_profiles`](#table-voice_profiles) 通过一组绑定键协作，而不是中间绑定表。
@@ -417,7 +417,6 @@ sequenceDiagram
 | `voice_provider_voice_id` | 当前绑定音色在 provider 侧的 voice id。系统音色保存 MiniMax voice id；克隆音色保存 DashScope clone voice id。 | TTS 调用与角色绑定判断。 |
 | `voice_source_type` | 当前绑定音色来源类型。`system` 走系统音色 catalog；`clone` 走用户音色资产校验。 | 区分 system / clone 等来源，并决定 provider registry 路由。 |
 | `llm_preset_id` | 产品化 LLM 预设，当前为 `free/flagship`；`flagship` 需要付费权益。 | 角色创建 / 编辑写入，聊天生成时解析实际 provider/model。 |
-| `dialogue_style_id` | 对话风格预设，当前为 `true_nature/spring_breeze/free_spirit/clear_inquiry/poetic_reserve/proud_resolve`。 | 角色创建 / 编辑写入，聊天、regen/edit、实时回复构造 system prompt 时注入软风格约束。 |
 | `status` | 角色生命周期状态，当前重点是 `ACTIVE/UNPUBLISHED`。 | 下架后市场不可见，但历史聊天保留。 |
 | `unpublished_at` | 下架时间。 | 只读历史与运营审计。 |
 | `created_at` | 创建时间。 | 排序、审计。 |

@@ -84,7 +84,6 @@ class RealtimeDialogService:
             )
             generation_context = ChatGenerationContext(
                 character_system_prompt=character.system_prompt,
-                dialogue_style_id=getattr(character, "dialogue_style_id", None),
                 history_messages=history_messages,
                 user_message=outbound_user_content,
                 memories={"episodic": [], "semantic": []},

@@ -6,12 +6,7 @@ from enum import StrEnum
 from pydantic import field_validator
 from sqlmodel import Field, SQLModel
 
-from src.core.dialogue_styles import (
-    DEFAULT_DIALOGUE_STYLE_ID,
-    DIALOGUE_STYLES_BY_ID,
-    LLM_PRESET_FREE,
-    LLM_PRESET_IDS,
-)
+from src.core.llm_presets import LLM_PRESET_FREE, LLM_PRESET_IDS
 from src.core.tts_registry import (
     DEFAULT_SYSTEM_TTS_MODEL,
     DEFAULT_SYSTEM_TTS_PROVIDER,
@@ -42,18 +37,6 @@ def _normalize_preset_id(value: object) -> str | None:
     normalized = value.strip().lower()
     if normalized not in LLM_PRESET_IDS:
         raise ValueError("llm_preset_id must be one of: free, flagship")
-    return normalized
-
-
-def _normalize_dialogue_style_id(value: object) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError("dialogue_style_id must be a string")
-    normalized = value.strip().lower()
-    if normalized not in DIALOGUE_STYLES_BY_ID:
-        allowed = ", ".join(sorted(DIALOGUE_STYLES_BY_ID))
-        raise ValueError(f"dialogue_style_id must be one of: {allowed}")
     return normalized
 
 
@@ -93,22 +76,12 @@ class CharacterCreate(SQLModel):
         max_length=40,
         description="LLM preset tier: 'free' or 'flagship'.",
     )
-    dialogue_style_id: str = Field(
-        default=DEFAULT_DIALOGUE_STYLE_ID,
-        max_length=40,
-        description="Dialogue style for character role-playing.",
-    )
     visibility: VisibilityEnum = Field(VisibilityEnum.PRIVATE, description="Character visibility: PUBLIC or PRIVATE")
 
     @field_validator("llm_preset_id", mode="before")
     @classmethod
     def validate_llm_preset_id(cls, value: str | None) -> str | None:
         return _normalize_preset_id(value)
-
-    @field_validator("dialogue_style_id", mode="before")
-    @classmethod
-    def validate_dialogue_style_id(cls, value: str | None) -> str | None:
-        return _normalize_dialogue_style_id(value)
 
 
 class CharacterUpdate(SQLModel):
@@ -147,22 +120,12 @@ class CharacterUpdate(SQLModel):
         max_length=40,
         description="LLM preset tier. Omit to keep unchanged.",
     )
-    dialogue_style_id: str | None = Field(
-        default=None,
-        max_length=40,
-        description="Dialogue style. Omit to keep unchanged.",
-    )
     visibility: VisibilityEnum | None = Field(None, description="Update visibility status")
 
     @field_validator("llm_preset_id", mode="before")
     @classmethod
     def validate_llm_preset_id(cls, value: str | None) -> str | None:
         return _normalize_preset_id(value)
-
-    @field_validator("dialogue_style_id", mode="before")
-    @classmethod
-    def validate_dialogue_style_id(cls, value: str | None) -> str | None:
-        return _normalize_dialogue_style_id(value)
 
 
 class CharacterResponse(SQLModel):
@@ -180,7 +143,6 @@ class CharacterResponse(SQLModel):
     voice_source_type: VoiceSourceTypeEnum
     voice: VoiceSelectableItem | None = None
     llm_preset_id: str | None = None
-    dialogue_style_id: str | None = None
     creator_id: str | None = None
     creator_username: str | None = None
     status: CharacterStatusEnum = CharacterStatusEnum.ACTIVE

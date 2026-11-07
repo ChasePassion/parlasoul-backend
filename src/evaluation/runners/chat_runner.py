@@ -104,7 +104,6 @@ class ChatReplayRunner:
         memory_active = case.memory_active if case.memory_active is not None else True
         generation_context = ChatGenerationContext(
             character_system_prompt=str(case.character_snapshot.get("system_prompt", "")),
-            dialogue_style_id=case.character_snapshot.get("dialogue_style_id"),
             history_messages=history_messages_from_case(case),
             user_message=case.user_message,
             memories=memories,

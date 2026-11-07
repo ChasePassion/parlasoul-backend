@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from src.core.dialogue_styles import PAID_LLM_PRESET_IDS
+from src.core.llm_presets import PAID_LLM_PRESET_IDS
 from src.core.error_codes import ErrorCode
 from src.core.exceptions import APIError
 from src.core.tts_registry import TTSRegistry
@@ -114,7 +114,6 @@ def _to_response(
         voice_source_type=character.voice_source_type,
         voice=voice,
         llm_preset_id=character.llm_preset_id,
-        dialogue_style_id=character.dialogue_style_id,
         creator_id=str(character.creator_id) if character.creator_id else None,
         creator_username=creator_username,
         status=character.status,
@@ -365,7 +364,6 @@ class CharacterService:
     ) -> dict[str, str | None]:
         return {
             "llm_preset_id": character_in.llm_preset_id,
-            "dialogue_style_id": character_in.dialogue_style_id,
         }
 
     async def _assert_llm_preset_allowed(
@@ -399,7 +397,7 @@ class CharacterService:
         update_data: dict[str, object],
         current_user: User,
     ) -> None:
-        llm_keys = {"llm_preset_id", "dialogue_style_id"}
+        llm_keys = {"llm_preset_id"}
         if not any(key in update_data for key in llm_keys):
             return
         if update_data.get("llm_preset_id") is None and "llm_preset_id" in update_data:
@@ -407,14 +405,6 @@ class CharacterService:
                 status_code=422,
                 code=ErrorCode.VALIDATION_FAILED,
                 message="validation failed: llm_preset_id cannot be null; omit it to keep unchanged",
-            )
-        if update_data.get("dialogue_style_id") is None and "dialogue_style_id" in update_data:
-            raise APIError(
-                status_code=422,
-                code=ErrorCode.VALIDATION_FAILED,
-                message=(
-                    "validation failed: dialogue_style_id cannot be null; omit it to keep unchanged"
-                ),
             )
         raw_preset_id = update_data.get("llm_preset_id")
         current_preset_id = getattr(character, "llm_preset_id", None)
@@ -451,7 +441,6 @@ class CharacterService:
             voice_provider_voice_id=voice_binding["voice_provider_voice_id"],
             voice_source_type=voice_binding["voice_source_type"],
             llm_preset_id=llm_binding["llm_preset_id"],
-            dialogue_style_id=llm_binding["dialogue_style_id"],
             visibility=character_in.visibility.value,
             creator_id=current_user.id,
         )
