@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from src.core.exceptions import APIError
 from src.db.models import (
     Character,
     Chat,

@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.core.exceptions import APIError
 from src.db.models import VisibilityType
 from src.realtime.session import manager as manager_module
 from src.realtime.session.manager import RealtimeSessionManager
