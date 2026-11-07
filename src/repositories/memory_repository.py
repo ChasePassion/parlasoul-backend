@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import Callable
 from typing import Any
 
 from src.core.error_codes import ErrorCode
@@ -55,10 +55,6 @@ class MemoryRepository:
                     f"err_type={type(exc).__name__}; err={exc}"
                 ),
             ) from exc
-
-    @property
-    def llm_model(self) -> str:
-        return self._get_memory().config.llm_model
 
     @property
     def use_all_semantic(self) -> bool:
@@ -186,44 +182,6 @@ class MemoryRepository:
             character_id=character_id,
             chat_id=chat_id,
         )
-
-    async def chat_stream_messages(self, messages: list[dict[str, str]]) -> AsyncGenerator[str, None]:
-        memory = self._get_memory()
-        async for chunk in memory.gateway_service.stream_text(
-            route=memory.llm_route,
-            messages=messages,
-            operation="memory.legacy_stream",
-            route_role="memory",
-        ):
-            yield chunk
-
-    async def llm_text(self, *, system_prompt: str, user_message: str) -> str:
-        memory = self._get_memory()
-        return await memory.gateway_service.generate_text(
-            route=memory.llm_route,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            operation="memory.legacy_text",
-            route_role="memory",
-        )
-
-    async def llm_json(
-        self,
-        *,
-        system_prompt: str,
-        user_message: str,
-        default: dict[str, Any],
-    ) -> dict[str, Any]:
-        memory = self._get_memory()
-        result = await memory.gateway_service.generate_json(
-            route=memory.llm_route,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            default=default,
-            operation="memory.legacy_json",
-            route_role="memory",
-        )
-        return result if isinstance(result, dict) else default
 
     async def judge_and_assign_narrative_group(
         self,

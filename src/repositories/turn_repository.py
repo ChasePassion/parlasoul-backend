@@ -44,7 +44,6 @@ class TurnRepository:
         beyond the returned turns (i.e. the oldest turn has a non-null parent_turn_id).
         When limit is given, fetches limit+1 rows to detect has_more.
         """
-        fetch_n = limit + 1 if limit else None
         cte_sql = text("""
             WITH RECURSIVE chain AS (
                 SELECT * FROM turns WHERE id = :leaf_id AND chat_id = :chat_id
@@ -57,7 +56,7 @@ class TurnRepository:
         params: dict[str, object] = {
             "leaf_id": leaf_turn_id,
             "chat_id": chat_id,
-            "fetch_n": fetch_n or 10000,
+            "fetch_n": limit + 1 if limit else 10000,
         }
         result = await self._db.execute(cte_sql, params)
         rows = result.mappings().all()

@@ -82,11 +82,3 @@ class ConsolidateResponse(BaseModel):
     """Response model for consolidate endpoint."""
     memories_processed: int
     semantic_created: int
-
-
-# ============== Health Check ==============
-
-class HealthResponse(BaseModel):
-    """Response model for health check."""
-    status: str = "ok"
-    version: str = "1.0.0"

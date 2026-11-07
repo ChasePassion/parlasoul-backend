@@ -499,13 +499,6 @@ def _update_current_generation(**kwargs: Any) -> None:
         fallback(**kwargs)
 
 
-def _update_current_observation(**kwargs: Any) -> None:
-    client = get_client()
-    updater = getattr(client, "update_current_observation", None)
-    if callable(updater):
-        updater(**kwargs)
-
-
 def _request_metadata(request: LLMCallRequest, llm_call_id: str) -> dict[str, Any]:
     metadata = {
         "llm_call_id": llm_call_id,

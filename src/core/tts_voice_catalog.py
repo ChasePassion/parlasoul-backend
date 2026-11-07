@@ -337,13 +337,6 @@ def minimax_system_voice_catalog(
     return tuple(items)
 
 
-def minimax_voice_id_for_legacy_dashscope(voice_id: str) -> str:
-    return _MINIMAX_VOICE_ID_BY_DASHSCOPE_ID.get(
-        voice_id,
-        DEFAULT_MINIMAX_SYSTEM_VOICE_ID,
-    )
-
-
 def legacy_dashscope_voice_id_for_minimax(voice_id: str) -> str | None:
     return _DASHSCOPE_VOICE_ID_BY_MINIMAX_ID.get(voice_id)
 
@@ -359,5 +352,4 @@ __all__ = [
     "dashscope_legacy_voice_catalog",
     "legacy_dashscope_voice_id_for_minimax",
     "minimax_system_voice_catalog",
-    "minimax_voice_id_for_legacy_dashscope",
 ]

@@ -14,13 +14,3 @@ class SuccessEnvelope(SQLModel, Generic[T]):
     message: str = "ok"
     status: int
     data: T | None = None
-
-
-class ErrorEnvelope(SQLModel):
-    code: str
-    message: str
-    status: int
-
-
-class MessagePayload(SQLModel):
-    message: str
