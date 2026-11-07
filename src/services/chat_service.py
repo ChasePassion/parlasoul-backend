@@ -252,6 +252,9 @@ def _materialize_chat_image_refs(raw_items: Any) -> list[ChatImageRef] | None:
         ref = build_chat_image_ref(image_key)
         if ref is None or ref.image_key in seen:
             continue
+        inline = item.get("data_url")
+        if isinstance(inline, str) and inline.startswith("data:"):
+            ref.data_url = inline
         seen.add(ref.image_key)
         refs.append(ref)
     return refs or None
@@ -291,6 +294,7 @@ def _normalize_requested_chat_images(
         if ref.image_key in seen:
             continue
         seen.add(ref.image_key)
+        ref.data_url = image.data_url
         normalized_refs.append(ref)
     if normalized_refs:
         logger.info(
@@ -349,7 +353,10 @@ def _build_user_message_with_images(
     """
     if chat_images:
         parts: list[dict[str, Any]] = [
-            {"type": "image_url", "image_url": {"url": _llm_image_url(ref.image_key)}}
+            {
+                "type": "image_url",
+                "image_url": {"url": ref.data_url or _llm_image_url(ref.image_key)},
+            }
             for ref in chat_images
         ]
         parts.append({"type": "text", "text": text})
@@ -408,15 +415,9 @@ async def _load_llm_history_messages_from_leaf(
 
         if t.author_type == AuthorType.USER.value:
             chat_image_refs = _materialize_chat_image_refs((cand.extra or {}).get("chat_images"))
-            if chat_image_refs:
-                parts: list[dict[str, Any]] = [
-                    {"type": "image_url", "image_url": {"url": _llm_image_url(ref.image_key)}}
-                    for ref in chat_image_refs
-                ]
-                parts.append({"type": "text", "text": cand.content})
-                messages.append({"role": "user", "content": parts})
-            else:
-                messages.append({"role": "user", "content": cand.content})
+            messages.append(
+                _build_user_message_with_images(cand.content, chat_image_refs)
+            )
         elif t.author_type == AuthorType.CHARACTER.value:
             messages.append({"role": "assistant", "content": cand.content})
         else:
@@ -2087,7 +2088,10 @@ class ChatService:
             cand_extra = None
             if normalized_images:
                 cand_extra = {
-                    "chat_images": [{"image_key": img.image_key} for img in normalized_images]
+                    "chat_images": [
+                        {"image_key": img.image_key, "data_url": img.data_url}
+                        for img in normalized_images
+                    ]
                 }
 
             user_cand = Candidate(

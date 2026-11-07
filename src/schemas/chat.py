@@ -57,6 +57,9 @@ class ChatImageRef(SQLModel):
     image_key: str = Field(min_length=1)
     original: str
     display: str
+    # Inline base64 (data URL) sent straight to the vision model. Falls back to
+    # the R2 public URL for historical turns that predate inline images.
+    data_url: str | None = Field(default=None, max_length=4_000_000)
 
 
 class CandidateResponse(SQLModel):
