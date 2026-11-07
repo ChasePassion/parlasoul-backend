@@ -26,12 +26,10 @@ async def create_stt_transcription(
     audio: UploadFile = File(...),
     audio_format: Literal["pcm", "wav", "opus", "speex", "aac", "amr"] = Form("wav"),
     sample_rate: int = Form(16000),
+    chat_id: uuid.UUID | None = Form(None),
     current_user: User = Depends(deps.get_current_user),
     service: VoiceService = Depends(get_voice_service),
 ) -> SuccessEnvelope[STTTranscriptionResult]:
-    # Bind auth context for consistency; value not used directly in logic for now.
-    _ = current_user
-
     raw = await audio.read()
     if not raw:
         raise APIError(
@@ -62,6 +60,8 @@ async def create_stt_transcription(
         audio_bytes=raw,
         audio_format=audio_format,
         sample_rate=sample_rate,
+        chat_id=chat_id,
+        current_user_id=current_user.id,
     )
     return success_response(data, status_code=200)
 

@@ -357,6 +357,19 @@ class Settings(BaseSettings):
     DASHSCOPE_VOICE_CLONE_TARGET_MODEL: str = "qwen3-tts-vc-realtime-2026-01-15"
     DASHSCOPE_HTTP_TIMEOUT_SECONDS: float = 30.0
     DASHSCOPE_STT_EVENT_TIMEOUT_SECONDS: float = 60.0
+    # One-shot STT (the chat composer microphone button) uses the synchronous
+    # Qwen-Audio HTTP API. Realtime voice calls keep using DASHSCOPE_STT_MODEL
+    # over the realtime websocket, so the two transports are configured apart.
+    DASHSCOPE_STT_HTTP_MODEL: str = "qwen-audio-3.1-asr-flash"
+    DASHSCOPE_STT_HTTP_API_URL: str = (
+        "https://dashscope.aliyuncs.com/api/v1/services/aigc/"
+        "multimodal-generation/generation"
+    )
+    DASHSCOPE_STT_HTTP_TIMEOUT_SECONDS: float = 20.0
+    # Declaring the languages the user may mix improves recognition accuracy.
+    # Comma-separated, at most 4 values; empty leaves language detection to the model.
+    DASHSCOPE_STT_LANGUAGE_HINTS: str = "zh,en"
+    DASHSCOPE_STT_CONTEXT_MAX_TURNS: int = 3
     DASHSCOPE_TIMBRE_LIST_DOC_URL: str = (
         "https://help.aliyun.com/zh/model-studio/multimodal-timbre-list"
     )

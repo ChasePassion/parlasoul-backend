@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.core.config import settings
 from src.core.exceptions import APIError
 from src.db.models import AuthorType, Candidate, Chat, Turn, User
 from src.repositories.candidate_repository import CandidateRepository
@@ -73,10 +74,15 @@ def _fake_tts_gateway(**methods):
     return SimpleNamespace(**methods)
 
 
-@pytest.mark.asyncio
-async def test_transcribe_audio_delegates_to_gateway() -> None:
+def _build_http_gateway() -> VoiceGatewayRepository:
     gateway = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    gateway.transcribe_audio = AsyncMock(return_value=("hello world", "req-1"))
+    gateway.transcribe_audio_http = AsyncMock(return_value=("hello world", "req-1"))
+    return gateway
+
+
+@pytest.mark.asyncio
+async def test_transcribe_audio_delegates_to_http_gateway() -> None:
+    gateway = _build_http_gateway()
     candidate_repo = CandidateRepository.__new__(CandidateRepository)
     service = VoiceService(gateway, candidate_repo)
 
@@ -87,8 +93,196 @@ async def test_transcribe_audio_delegates_to_gateway() -> None:
     )
 
     assert result.text == "hello world"
-    assert result.model == "qwen3-asr-flash-realtime"
+    assert result.model == settings.DASHSCOPE_STT_HTTP_MODEL
+    assert result.request_id == "req-1"
+    gateway.transcribe_audio_http.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_transcribe_audio_keeps_websocket_transport_for_opus() -> None:
+    gateway = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
+    gateway.transcribe_audio = AsyncMock(return_value=("hello world", "req-2"))
+    candidate_repo = CandidateRepository.__new__(CandidateRepository)
+    service = VoiceService(gateway, candidate_repo)
+
+    result = await service.transcribe_audio(
+        audio_bytes=b"abc",
+        audio_format="opus",
+        sample_rate=16000,
+    )
+
+    assert result.text == "hello world"
+    assert result.model == settings.DASHSCOPE_STT_MODEL
     gateway.transcribe_audio.assert_awaited_once()
+
+
+def _build_context_repos(
+    *,
+    user_id: uuid.UUID,
+    chat_id: uuid.UUID,
+    owner_id: uuid.UUID | None = None,
+):
+    character_id = uuid.uuid4()
+    chat_repo = SimpleNamespace(
+        get_by_id=AsyncMock(
+            return_value=SimpleNamespace(
+                id=chat_id,
+                user_id=owner_id if owner_id is not None else user_id,
+                character_id=character_id,
+                active_leaf_turn_id=None,
+                last_turn_id=None,
+            )
+        )
+    )
+    character_repo = SimpleNamespace(
+        get_by_id=AsyncMock(
+            return_value=SimpleNamespace(name="芊悦", description="一位温柔的图书管理员")
+        )
+    )
+    return chat_repo, character_repo
+
+
+@pytest.mark.asyncio
+async def test_stt_context_includes_character_name() -> None:
+    gateway = _build_http_gateway()
+    candidate_repo = CandidateRepository.__new__(CandidateRepository)
+    user_id = uuid.uuid4()
+    chat_id = uuid.uuid4()
+    chat_repo, character_repo = _build_context_repos(user_id=user_id, chat_id=chat_id)
+    service = VoiceService(gateway, candidate_repo, character_repo, chat_repo)
+
+    await service.transcribe_audio(
+        audio_bytes=b"abc",
+        audio_format="wav",
+        sample_rate=16000,
+        chat_id=chat_id,
+        current_user_id=user_id,
+    )
+
+    context = gateway.transcribe_audio_http.await_args.kwargs["context_messages"]
+    assert len(context) == 1
+    assert context[0]["role"] == "user"
+    assert "芊悦" in context[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_stt_context_skips_chat_owned_by_another_user() -> None:
+    gateway = _build_http_gateway()
+    candidate_repo = CandidateRepository.__new__(CandidateRepository)
+    user_id = uuid.uuid4()
+    chat_id = uuid.uuid4()
+    chat_repo, character_repo = _build_context_repos(
+        user_id=user_id,
+        chat_id=chat_id,
+        owner_id=uuid.uuid4(),
+    )
+    service = VoiceService(gateway, candidate_repo, character_repo, chat_repo)
+
+    await service.transcribe_audio(
+        audio_bytes=b"abc",
+        audio_format="wav",
+        sample_rate=16000,
+        chat_id=chat_id,
+        current_user_id=user_id,
+    )
+
+    assert gateway.transcribe_audio_http.await_args.kwargs["context_messages"] == []
+
+
+@pytest.mark.asyncio
+async def test_stt_context_without_chat_id_is_empty() -> None:
+    gateway = _build_http_gateway()
+    candidate_repo = CandidateRepository.__new__(CandidateRepository)
+    service = VoiceService(gateway, candidate_repo)
+
+    await service.transcribe_audio(
+        audio_bytes=b"abc",
+        audio_format="wav",
+        sample_rate=16000,
+    )
+
+    assert gateway.transcribe_audio_http.await_args.kwargs["context_messages"] == []
+
+
+@pytest.mark.asyncio
+async def test_stt_context_includes_recent_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.services import chat_service
+
+    async def _fake_history(turn_repo, candidate_repo, chat_id, leaf_turn_id, limit):
+        return [
+            {"role": "user", "content": "你还记得上次吗"},
+            {"role": "assistant", "content": "当然记得，芊悦一直在等你"},
+        ]
+
+    monkeypatch.setattr(
+        chat_service, "_load_llm_history_messages_from_leaf", _fake_history
+    )
+    gateway = _build_http_gateway()
+    candidate_repo = CandidateRepository.__new__(CandidateRepository)
+    user_id = uuid.uuid4()
+    chat_id = uuid.uuid4()
+    chat_repo, character_repo = _build_context_repos(user_id=user_id, chat_id=chat_id)
+    service = VoiceService(
+        gateway, candidate_repo, character_repo, chat_repo, object()
+    )
+
+    await service.transcribe_audio(
+        audio_bytes=b"abc",
+        audio_format="wav",
+        sample_rate=16000,
+        chat_id=chat_id,
+        current_user_id=user_id,
+    )
+
+    context = gateway.transcribe_audio_http.await_args.kwargs["context_messages"]
+    assert len(context) == 2
+    assert context[0]["role"] == "user"
+    assert "芊悦" in context[0]["text"]
+    assert "你还记得上次吗" in context[0]["text"]
+    assert context[1]["role"] == "assistant"
+    assert "芊悦" in context[1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_stt_context_starts_with_user_and_respects_turn_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.services import chat_service
+
+    async def _fake_history(turn_repo, candidate_repo, chat_id, leaf_turn_id, limit):
+        return [
+            {"role": "assistant", "content": "你好，我是芊悦"},
+            {"role": "user", "content": "今天天气不错" * 100},
+            {"role": "assistant", "content": "是啊" * 100},
+        ]
+
+    monkeypatch.setattr(
+        chat_service, "_load_llm_history_messages_from_leaf", _fake_history
+    )
+    gateway = _build_http_gateway()
+    candidate_repo = CandidateRepository.__new__(CandidateRepository)
+    user_id = uuid.uuid4()
+    chat_id = uuid.uuid4()
+    chat_repo, character_repo = _build_context_repos(user_id=user_id, chat_id=chat_id)
+    service = VoiceService(
+        gateway, candidate_repo, character_repo, chat_repo, object()
+    )
+
+    await service.transcribe_audio(
+        audio_bytes=b"abc",
+        audio_format="wav",
+        sample_rate=16000,
+        chat_id=chat_id,
+        current_user_id=user_id,
+    )
+
+    context = gateway.transcribe_audio_http.await_args.kwargs["context_messages"]
+    assert [item["role"] for item in context] == ["user", "assistant"]
+    assert "今天天气不错" in context[0]["text"]
+    assert all(len(item["text"]) <= 200 for item in context)
+    assert len(context[0]["text"]) + len(context[1]["text"]) <= 400
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,7 @@ _DASHSCOPE_PROVIDER = "dashscope"
 _LANGFUSE_UNIT_CHARACTERS = "CHARACTERS"
 _LANGFUSE_UNIT_SECONDS = "SECONDS"
 _LANGFUSE_UNIT_REQUESTS = "REQUESTS"
+_LANGFUSE_UNIT_TOKENS = "TOKENS"
 _STT_WEBSOCKET_MAX_ATTEMPTS = 2
 _STT_WEBSOCKET_RETRY_DELAY_SECONDS = 0.2
 _TRANSIENT_STT_WEBSOCKET_ERRNOS = {
@@ -132,6 +133,92 @@ def _extract_stt_error_message(event: dict[str, Any], default: str) -> str:
 def _is_qwen3_realtime_asr_model(model: str) -> bool:
     normalized = model.strip().lower()
     return normalized.startswith("qwen3-asr-flash-realtime")
+
+
+def _parse_stt_language_hints(value: str) -> list[str]:
+    hints = [item.strip().lower() for item in (value or "").split(",") if item.strip()]
+    return hints[:4]
+
+
+def _pcm16_to_wav(pcm16: bytes, *, sample_rate: int) -> bytes:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm16)
+    return buffer.getvalue()
+
+
+def _build_stt_http_audio(
+    *,
+    audio_bytes: bytes,
+    audio_format: str,
+    sample_rate: int,
+) -> tuple[str, str]:
+    """Return the Base64 Data URI and the upstream ``format`` value."""
+    normalized = audio_format.strip().lower()
+    if normalized == "wav":
+        payload = audio_bytes
+    elif normalized == "pcm":
+        payload = _pcm16_to_wav(audio_bytes, sample_rate=sample_rate)
+    else:
+        raise APIError(
+            status_code=422,
+            code="validation_failed",
+            message=(
+                "validation failed: unsupported audio format for http stt; "
+                f"audio_format={audio_format}; supported=pcm|wav"
+            ),
+        )
+    return "data:audio/wav;base64," + base64.b64encode(payload).decode("ascii"), "wav"
+
+
+def _build_stt_http_messages(
+    *,
+    audio_data_uri: str,
+    context_messages: list[dict[str, str]] | None,
+) -> list[dict[str, Any]]:
+    """Build ``input.messages`` with context first and the audio message last."""
+    messages: list[dict[str, Any]] = []
+    for item in context_messages or []:
+        role = item.get("role")
+        text = (item.get("text") or "").strip()
+        if role not in {"user", "assistant"} or not text:
+            continue
+        content_type = "input_text" if role == "user" else "text"
+        messages.append(
+            {"role": role, "content": [{"type": content_type, "text": text[:400]}]}
+        )
+    messages.append(
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_audio", "input_audio": {"data": audio_data_uri}}
+            ],
+        }
+    )
+    return messages
+
+
+def _extract_stt_http_text(payload: dict[str, Any]) -> str:
+    output = payload.get("output")
+    if not isinstance(output, dict):
+        return ""
+    text = output.get("text")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    sentence = output.get("sentence")
+    if isinstance(sentence, dict):
+        value = sentence.get("text")
+        if isinstance(value, str):
+            return value.strip()
+    return ""
+
+
+def _extract_stt_http_usage(payload: dict[str, Any]) -> dict[str, Any]:
+    usage = payload.get("usage")
+    return usage if isinstance(usage, dict) else {}
 
 
 def _extract_qwen3_transcription_text(event: dict[str, Any]) -> str:
@@ -389,6 +476,12 @@ class VoiceGatewayRepository:
         self._tts_customization_api_url = settings.DASHSCOPE_TTS_CUSTOMIZATION_API_URL
         self._http_timeout_seconds = settings.DASHSCOPE_HTTP_TIMEOUT_SECONDS
         self._stt_event_timeout_seconds = settings.DASHSCOPE_STT_EVENT_TIMEOUT_SECONDS
+        self._stt_http_model = settings.DASHSCOPE_STT_HTTP_MODEL
+        self._stt_http_api_url = settings.DASHSCOPE_STT_HTTP_API_URL
+        self._stt_http_timeout_seconds = settings.DASHSCOPE_STT_HTTP_TIMEOUT_SECONDS
+        self._stt_language_hints = _parse_stt_language_hints(
+            settings.DASHSCOPE_STT_LANGUAGE_HINTS
+        )
         self._stt_websocket_max_attempts = _STT_WEBSOCKET_MAX_ATTEMPTS
         self._stt_websocket_retry_delay_seconds = _STT_WEBSOCKET_RETRY_DELAY_SECONDS
         self._timbre_list_doc_url = settings.DASHSCOPE_TIMBRE_LIST_DOC_URL
@@ -704,6 +797,192 @@ class VoiceGatewayRepository:
         from src.realtime.services.streaming_stt import open_streaming_stt
 
         return open_streaming_stt(repo=self)
+
+    async def transcribe_audio_http(
+        self,
+        *,
+        audio_bytes: bytes,
+        audio_format: str,
+        sample_rate: int,
+        context_messages: list[dict[str, str]] | None = None,
+    ) -> tuple[str, str | None]:
+        """Transcribe a recorded utterance through the synchronous Qwen-Audio API.
+
+        Only the chat composer microphone button uses this path. Realtime voice
+        calls keep calling :meth:`transcribe_audio` over the realtime websocket.
+        """
+        api_key = self._require_api_key()
+        if not audio_bytes:
+            raise APIError(
+                status_code=422,
+                code="stt_audio_empty",
+                message="invalid request: audio payload is empty",
+            )
+
+        model = getattr(self, "_stt_http_model", None) or settings.DASHSCOPE_STT_HTTP_MODEL
+        api_url = (
+            getattr(self, "_stt_http_api_url", None)
+            or settings.DASHSCOPE_STT_HTTP_API_URL
+        )
+        timeout_seconds = float(
+            getattr(self, "_stt_http_timeout_seconds", None)
+            or settings.DASHSCOPE_STT_HTTP_TIMEOUT_SECONDS
+        )
+        language_hints = getattr(self, "_stt_language_hints", None)
+        if language_hints is None:
+            language_hints = _parse_stt_language_hints(
+                settings.DASHSCOPE_STT_LANGUAGE_HINTS
+            )
+
+        audio_data_uri, upstream_format = _build_stt_http_audio(
+            audio_bytes=audio_bytes,
+            audio_format=audio_format,
+            sample_rate=sample_rate,
+        )
+        messages = _build_stt_http_messages(
+            audio_data_uri=audio_data_uri,
+            context_messages=context_messages,
+        )
+        parameters: dict[str, Any] = {
+            "format": upstream_format,
+            "sample_rate": str(sample_rate),
+        }
+        if language_hints:
+            parameters["language_hints"] = language_hints
+
+        observation = _start_voice_model_observation(
+            name="voice.stt.transcribe",
+            model=model,
+            input_payload={
+                "audio_format": audio_format,
+                "sample_rate": sample_rate,
+                "audio_bytes": len(audio_bytes),
+                "context_messages": len(messages) - 1,
+            },
+            metadata={
+                "provider": _DASHSCOPE_PROVIDER,
+                "billing_region": self._billing_region,
+                "billing_unit": _LANGFUSE_UNIT_TOKENS,
+                "source_unit": _LANGFUSE_UNIT_TOKENS,
+                "operation": "voice.stt.transcribe",
+                "model": _dashscope_model_label(model),
+                "transport": "http",
+            },
+        )
+        error_metadata = {
+            "provider": _DASHSCOPE_PROVIDER,
+            "billing_region": self._billing_region,
+            "billing_unit": _LANGFUSE_UNIT_TOKENS,
+            "source_unit": _LANGFUSE_UNIT_TOKENS,
+            "audio_format": audio_format,
+            "sample_rate": sample_rate,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                response = await client.post(
+                    api_url,
+                    json={
+                        "model": model,
+                        "input": {"messages": messages},
+                        "parameters": parameters,
+                    },
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "X-DashScope-SSE": "disable",
+                    },
+                )
+        except httpx.TimeoutException as exc:
+            _end_voice_model_observation(
+                observation,
+                level="ERROR",
+                status_message="Voice STT HTTP request timed out",
+                metadata={**error_metadata, "error_type": "TimeoutException"},
+            )
+            raise APIError(
+                status_code=504,
+                code="external_timeout",
+                message="upstream timeout: dashscope stt http request timed out",
+            ) from exc
+        except httpx.HTTPError as exc:
+            _end_voice_model_observation(
+                observation,
+                level="ERROR",
+                status_message="Voice STT HTTP request failed",
+                metadata={**error_metadata, "error_type": type(exc).__name__},
+            )
+            raise APIError(
+                status_code=502,
+                code="stt_upstream_error",
+                message="upstream error: dashscope stt http request failed",
+            ) from exc
+
+        if response.status_code != 200:
+            _end_voice_model_observation(
+                observation,
+                level="ERROR",
+                status_message="Voice STT HTTP request rejected",
+                metadata={**error_metadata, "upstream_status": response.status_code},
+            )
+            raise APIError(
+                status_code=502,
+                code="stt_upstream_error",
+                message=(
+                    "upstream error: dashscope stt http request rejected; "
+                    f"status={response.status_code}"
+                ),
+            )
+
+        payload = _load_json(response.text)
+        request_id = payload.get("request_id")
+        request_id = request_id if isinstance(request_id, str) else None
+        text = _extract_stt_http_text(payload)
+        usage = _extract_stt_http_usage(payload)
+        if not text and not usage:
+            _end_voice_model_observation(
+                observation,
+                level="ERROR",
+                status_message="Voice STT HTTP response unreadable",
+                metadata={**error_metadata, "error_type": "InvalidResponse"},
+            )
+            raise APIError(
+                status_code=502,
+                code="stt_upstream_error",
+                message="upstream error: dashscope stt http response is unreadable",
+            )
+        if not text:
+            _end_voice_model_observation(
+                observation,
+                output={"text_chars": 0, "request_id": request_id},
+                metadata={**error_metadata, "request_id": request_id},
+            )
+            raise APIError(
+                status_code=422,
+                code="stt_no_speech_detected",
+                message="invalid request: no speech detected in audio",
+            )
+
+        input_tokens = int(usage.get("input_tokens") or 0)
+        output_tokens = int(usage.get("output_tokens") or 0)
+        total_tokens = int(usage.get("total_tokens") or (input_tokens + output_tokens))
+        usage_details = (
+            {"input": input_tokens, "output": output_tokens, "total": total_tokens}
+            if total_tokens
+            else None
+        )
+        _end_voice_model_observation(
+            observation,
+            output={"text_chars": len(text), "request_id": request_id},
+            usage_details=usage_details,
+            metadata={
+                **error_metadata,
+                "transport": "http",
+                "request_id": request_id,
+                "audio_duration_seconds": usage.get("duration"),
+                "context_messages": len(messages) - 1,
+            },
+        )
+        return text, request_id
 
     async def transcribe_audio(
         self,

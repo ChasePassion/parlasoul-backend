@@ -53,6 +53,29 @@ def test_create_stt_transcription_delegates_to_service() -> None:
     assert resp.status_code == 200
     assert resp.json()["data"]["text"] == "hello world"
     service.transcribe_audio.assert_awaited_once()
+    assert service.transcribe_audio.await_args.kwargs["chat_id"] is None
+
+
+def test_create_stt_transcription_passes_chat_id_and_user() -> None:
+    service = _StubVoiceService()
+    app = _create_app(service)
+    chat_id = uuid.uuid4()
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/v1/voice/stt/transcriptions",
+            data={
+                "audio_format": "wav",
+                "sample_rate": "16000",
+                "chat_id": str(chat_id),
+            },
+            files={"audio": ("test.wav", b"audio-bytes", "audio/wav")},
+        )
+
+    assert resp.status_code == 200
+    kwargs = service.transcribe_audio.await_args.kwargs
+    assert kwargs["chat_id"] == chat_id
+    assert isinstance(kwargs["current_user_id"], uuid.UUID)
 
 
 def test_stream_tts_for_message_delegates_to_service() -> None:
