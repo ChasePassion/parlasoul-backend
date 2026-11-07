@@ -486,17 +486,11 @@ class MilvusStore:
             logger.warning(f"Failed to delete group {group_id}: {e}")
             return False
 
-    def delete_groups_for_scope(self, user_id: str, character_id: str) -> int:
-        """Delete all narrative groups for a user+character scope.
-
-        Returns:
-            Number of deleted group records.
-        """
+    def _delete_groups_by_filter(self, filter_expr: str, log_fmt: str, *log_args: Any) -> int:
         groups_collection = self._get_groups_collection_name()
         if not self._client.has_collection(groups_collection):
             return 0
 
-        filter_expr = build_filter(user_id, character_id)
         before = self._client.query(
             collection_name=groups_collection,
             filter=filter_expr,
@@ -510,15 +504,22 @@ class MilvusStore:
             collection_name=groups_collection,
             filter=filter_expr,
         )
-        logger.info(
+        logger.info(log_fmt, count, groups_collection, *log_args)
+        return count
+
+    def delete_groups_for_scope(self, user_id: str, character_id: str) -> int:
+        """Delete all narrative groups for a user+character scope.
+
+        Returns:
+            Number of deleted group records.
+        """
+        return self._delete_groups_by_filter(
+            build_filter(user_id, character_id),
             "Deleted %s groups from '%s' for user_id=%s character_id=%s",
-            count,
-            groups_collection,
             user_id,
             character_id,
         )
-        return count
-    
+
     def delete_groups_for_character(self, character_id: str) -> int:
         """Delete all narrative groups for a character across every user.
 
@@ -528,31 +529,11 @@ class MilvusStore:
         Returns:
             Number of deleted group records.
         """
-        groups_collection = self._get_groups_collection_name()
-        if not self._client.has_collection(groups_collection):
-            return 0
-
-        filter_expr = build_filter(None, character_id)
-        before = self._client.query(
-            collection_name=groups_collection,
-            filter=filter_expr,
-            output_fields=["group_id"],
-        )
-        count = len(before)
-        if count == 0:
-            return 0
-
-        self._client.delete(
-            collection_name=groups_collection,
-            filter=filter_expr,
-        )
-        logger.info(
+        return self._delete_groups_by_filter(
+            build_filter(None, character_id),
             "Deleted %s groups from '%s' for character_id=%s (all users)",
-            count,
-            groups_collection,
             character_id,
         )
-        return count
 
     def update_memory_group_id(
         self,

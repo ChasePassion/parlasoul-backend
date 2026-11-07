@@ -41,6 +41,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_MEMORY_OUTPUT_FIELDS = [
+    "id",
+    "group_id",
+    "user_id",
+    "character_id",
+    "memory_type",
+    "ts",
+    "chat_id",
+    "text",
+]
+
 
 @dataclass
 class MemoryRecord:
@@ -343,16 +354,15 @@ class Memory:
 
                 for i, text in enumerate(add_texts):
                     entities.append(
-                        {
-                            "user_id": user_id,
-                            "character_id": character_id,
-                            "memory_type": "episodic",
-                            "ts": current_ts,
-                            "chat_id": chat_id,
-                            "text": text,
-                            "vector": embeddings[i],
-                            "group_id": -1,
-                        }
+                        self._build_memory_entity(
+                            user_id=user_id,
+                            character_id=character_id,
+                            memory_type="episodic",
+                            ts=current_ts,
+                            chat_id=chat_id,
+                            text=text,
+                            vector=embeddings[i],
+                        )
                     )
 
                 added_ids = await run_blocking(self._store.insert, entities)
@@ -460,67 +470,42 @@ class Memory:
             query_vector = query_vectors[0]
             q = normalize(np.array(query_vector))
 
-            semantic_mode = "all" if self._config.use_all_semantic else "top_k"
-            semantic_distances: dict[int, float] = {}
-            if self._config.use_all_semantic:
+            def _search_semantic_memories() -> tuple[list[MemoryRecord], dict[int, float]]:
                 semantic_filter = build_filter(user_id, character_id, 'memory_type == "semantic"')
-                semantic_records = self._store.query(
-                    filter_expr=semantic_filter,
-                    limit=1000,
-                    output_fields=[
-                        "id",
-                        "group_id",
-                        "user_id",
-                        "character_id",
-                        "memory_type",
-                        "ts",
-                        "chat_id",
-                        "text",
-                    ],
-                )
-                semantic_memories = [self._hit_to_memory_record(hit) for hit in semantic_records]
-            else:
-                semantic_filter = build_filter(user_id, character_id, 'memory_type == "semantic"')
+                distances: dict[int, float] = {}
+                if self._config.use_all_semantic:
+                    semantic_records = self._store.query(
+                        filter_expr=semantic_filter,
+                        limit=1000,
+                        output_fields=_MEMORY_OUTPUT_FIELDS,
+                    )
+                    return [self._hit_to_memory_record(hit) for hit in semantic_records], distances
                 semantic_results = self._store.search(
                     vectors=[query_vector],
                     filter_expr=semantic_filter,
                     limit=self._config.k_semantic,
-                    output_fields=[
-                        "id",
-                        "group_id",
-                        "user_id",
-                        "character_id",
-                        "memory_type",
-                        "ts",
-                        "chat_id",
-                        "text",
-                    ],
+                    output_fields=_MEMORY_OUTPUT_FIELDS,
                 )
-                semantic_memories = []
+                semantic_memories: list[MemoryRecord] = []
                 if semantic_results and semantic_results[0]:
                     for hit in semantic_results[0]:
                         distance = hit.get("distance")
                         if distance is not None:
-                            semantic_distances[int(hit.get("id", 0))] = float(distance)
+                            distances[int(hit.get("id", 0))] = float(distance)
                         semantic_memories.append(
                             self._hit_to_memory_record(hit, distance=distance)
                         )
+                return semantic_memories, distances
+
+            semantic_mode = "all" if self._config.use_all_semantic else "top_k"
+            semantic_memories, semantic_distances = _search_semantic_memories()
 
             episodic_filter = build_filter(user_id, character_id, 'memory_type == "episodic"')
             episodic_results = self._store.search(
                 vectors=[q.tolist()],
                 filter_expr=episodic_filter,
                 limit=self._config.k_episodic,
-                output_fields=[
-                    "id",
-                    "group_id",
-                    "user_id",
-                    "character_id",
-                    "memory_type",
-                    "ts",
-                    "chat_id",
-                    "text",
-                ],
+                output_fields=_MEMORY_OUTPUT_FIELDS,
             )
 
             seeds = episodic_results[0] if episodic_results and episodic_results[0] else []
@@ -587,16 +572,7 @@ class Memory:
                         character_id,
                         f"id in {id_list}",
                     ),
-                    output_fields=[
-                        "id",
-                        "user_id",
-                        "character_id",
-                        "memory_type",
-                        "ts",
-                        "chat_id",
-                        "text",
-                        "group_id",
-                    ],
+                    output_fields=_MEMORY_OUTPUT_FIELDS,
                 )
                 id2row = {row["id"]: row for row in mem_res}
                 for hit in seeds:
@@ -655,31 +631,13 @@ class Memory:
         semantic_records = self._store.query(
             filter_expr=semantic_filter,
             limit=semantic_limit,
-            output_fields=[
-                "id",
-                "group_id",
-                "user_id",
-                "character_id",
-                "memory_type",
-                "ts",
-                "chat_id",
-                "text",
-            ],
+            output_fields=_MEMORY_OUTPUT_FIELDS,
         )
         episodic_filter = build_filter(user_id, character_id, 'memory_type == "episodic"')
         episodic_records = self._store.query(
             filter_expr=episodic_filter,
             limit=episodic_limit,
-            output_fields=[
-                "id",
-                "group_id",
-                "user_id",
-                "character_id",
-                "memory_type",
-                "ts",
-                "chat_id",
-                "text",
-            ],
+            output_fields=_MEMORY_OUTPUT_FIELDS,
         )
         return {
             "semantic": [self._hit_to_memory_record(row) for row in semantic_records],
@@ -731,16 +689,15 @@ class Memory:
                 ids = await run_blocking(
                     self._store.insert,
                     [
-                        {
-                            "user_id": user_id,
-                            "character_id": character_id,
-                            "memory_type": "episodic",
-                            "ts": int(time.time()),
-                            "chat_id": chat_id,
-                            "text": memory_text,
-                            "vector": embeddings[0],
-                            "group_id": -1,
-                        }
+                        self._build_memory_entity(
+                            user_id=user_id,
+                            character_id=character_id,
+                            memory_type="episodic",
+                            ts=int(time.time()),
+                            chat_id=chat_id,
+                            text=memory_text,
+                            vector=embeddings[0],
+                        )
                     ],
                 )
                 return ids[0] if ids else None
@@ -754,6 +711,28 @@ class Memory:
             return None
 
     
+    @staticmethod
+    def _build_memory_entity(
+        *,
+        user_id: str,
+        character_id: str,
+        memory_type: str,
+        ts: int,
+        chat_id: str,
+        text: str,
+        vector: list[float],
+    ) -> dict[str, Any]:
+        return {
+            "user_id": user_id,
+            "character_id": character_id,
+            "memory_type": memory_type,
+            "ts": ts,
+            "chat_id": chat_id,
+            "text": text,
+            "vector": vector,
+            "group_id": -1,
+        }
+
     def _hit_to_memory_record(
         self,
         hit: dict[str, Any],
@@ -907,16 +886,7 @@ class Memory:
                     character_id,
                     f"id == {memory_id}"
                 ),
-                output_fields=[
-                    "id",
-                    "user_id",
-                    "character_id",
-                    "memory_type",
-                    "ts",
-                    "chat_id",
-                    "text",
-                    "group_id",
-                ]
+                output_fields=_MEMORY_OUTPUT_FIELDS
             )
 
             if not original_memories:
@@ -1283,16 +1253,15 @@ class Memory:
         
         for i, fact in enumerate(facts):
             # In v2 schema, the fact is stored directly in text field
-            entity = {
-                "user_id": user_id,
-                "character_id": character_id,
-                "memory_type": "semantic",
-                "ts": current_ts,
-                "chat_id": source_chat_id,
-                "text": fact,
-                "vector": embeddings[i],
-                "group_id": -1,
-            }
+            entity = self._build_memory_entity(
+                user_id=user_id,
+                character_id=character_id,
+                memory_type="semantic",
+                ts=current_ts,
+                chat_id=source_chat_id,
+                text=fact,
+                vector=embeddings[i],
+            )
 
             entities.append(entity)
         
