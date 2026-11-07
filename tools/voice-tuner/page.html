@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ParlaSoul 音色调试台</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --line: #e3e6ea;
+    --text: #1c1f23;
+    --muted: #6b7280;
+    --accent: #2f6feb;
+    --accent-weak: #eaf1fe;
+    --warn: #b42318;
+    --warn-weak: #fdecea;
+    --ok: #067647;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.55 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    padding: 16px 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  main {
+    display: grid;
+    grid-template-columns: 300px minmax(320px, 1fr) minmax(320px, 1fr);
+    gap: 16px;
+    padding: 16px 24px 48px;
+    align-items: start;
+  }
+  @media (max-width: 1180px) {
+    main { grid-template-columns: 1fr; }
+  }
+  section.panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  section.panel h2 {
+    font-size: 13px;
+    margin: 0 0 12px;
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: .04em;
+  }
+  .field { margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  label.lbl {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 5px;
+  }
+  label.lbl .code { font-weight: 400; color: var(--muted); font-size: 11px; font-family: ui-monospace, Consolas, monospace; }
+  .value { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  input[type="text"], input[type="number"], select, textarea {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--text);
+    font: inherit;
+  }
+  textarea { resize: vertical; }
+  input[type="text"]:focus, select:focus, textarea:focus, input[type="number"]:focus {
+    outline: 2px solid var(--accent-weak);
+    border-color: var(--accent);
+  }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  button {
+    padding: 9px 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { border-color: #c7ccd3; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #2760d0; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  audio { width: 100%; margin-top: 8px; }
+  .status {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    background: #f3f4f6;
+    color: var(--muted);
+    word-break: break-all;
+  }
+  .status.error { background: var(--warn-weak); color: var(--warn); }
+  .status.ok { background: #ecfdf3; color: var(--ok); }
+  .badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    background: #eef0f3;
+    color: var(--muted);
+  }
+  .badge.bad { background: var(--warn-weak); color: var(--warn); }
+  details.explain {
+    margin: 0 24px 24px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 4px 16px;
+  }
+  details.explain summary {
+    cursor: pointer;
+    padding: 10px 0;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  td code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .out {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12px;
+    min-height: 132px;
+  }
+  .flex-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ParlaSoul · 音色调试台</h1>
+  <span class="sub">直接调百炼 Qwen3-TTS 实时合成，链路与线上一致；工具只读，不会改动角色数据。</span>
+</header>
+
+<main>
+  <!-- 1. 音色 -->
+  <section class="panel">
+    <h2>1 · 音色本体</h2>
+
+    <div class="field">
+      <label class="lbl">载入角色 <span class="code">本地 characters 表</span></label>
+      <select id="character"><option value="">— 手动配置 —</option></select>
+      <div class="hint" id="characterHint">选一个角色会把它的音色和参数带过来。</div>
+    </div>
+
+    <div class="field">
+      <label class="lbl">模型 <span class="code">model</span></label>
+      <select id="model"></select>
+      <div class="hint" id="modelHint"></div>
+    </div>
+
+    <div class="field">
+      <label class="lbl">筛选音色</label>
+      <input type="text" id="voiceFilter" placeholder="输入中文名、音色 ID 或风格关键词">
+    </div>
+
+    <div class="field">
+      <label class="lbl">基础音色 <span class="code">voice</span></label>
+      <select id="voice"></select>
+      <div class="hint" id="voiceHint">换音色比调任何数值都更彻底，声音难听优先从这里换。</div>
+    </div>
+
+    <div class="field">
+      <label class="lbl">音色 ID <span class="code">voice（自定义）</span></label>
+      <input type="text" id="voiceId" placeholder="例如 Cherry 或克隆音色 ID">
+      <div class="hint">可以直接粘贴任意音色 ID，用来试数据库里没有的克隆音色。</div>
+    </div>
+  </section>
+
+  <!-- 2. 参数 -->
+  <section class="panel">
+    <h2>2 · 参数</h2>
+
+    <div class="field">
+      <label class="lbl">
+        <span>语速 <span class="code">speech_rate</span></span>
+        <span class="value" id="speechRateValue">1.00</span>
+      </label>
+      <input type="range" id="speechRate" min="0.5" max="2" step="0.01" value="1">
+      <div class="hint">0.5 极慢，1.0 正常，2.0 极快。线上只接受 0.75–1.35。</div>
+    </div>
+
+    <div class="field">
+      <label class="lbl">
+        <span>音量 <span class="code">volume</span></span>
+        <span class="value" id="volumeValue">50</span>
+      </label>
+      <input type="range" id="volume" min="0" max="100" step="1" value="50">
+      <div class="hint">0–100，默认 50。只改响度，不改音色。线上只接受 20–80。</div>
+    </div>
+
+    <div class="field">
+      <label class="lbl">
+        <span>语调 <span class="code">pitch_rate</span></span>
+        <span class="value" id="pitchRateValue">1.00</span>
+      </label>
+      <input type="range" id="pitchRate" min="0.5" max="2" step="0.01" value="1">
+      <div class="hint">小于 1 更低沉，大于 1 更尖细。底层是重采样，调大同时会变快变短，所以线上只接受 0.85–1.15。</div>
+    </div>
+
+    <div class="field">
+      <label class="lbl">语种 <span class="code">language_type</span></label>
+      <select id="languageType"></select>
+      <div class="hint">线上固定下发 English；这里可以换值，用来看不同语种设置下的发音差别。</div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label class="lbl">格式 <span class="code">response_format</span></label>
+        <select id="format"></select>
+      </div>
+      <div class="field">
+        <label class="lbl">采样率 <span class="code">sample_rate</span></label>
+        <select id="sampleRate"></select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="lbl">
+        <span>码率 <span class="code">bit_rate</span></span>
+        <span class="value" id="bitRateValue">128</span>
+      </label>
+      <input type="range" id="bitRate" min="6" max="510" step="2" value="128" disabled>
+      <div class="hint" id="bitRateHint">仅 opus 格式生效，6–510 kbps。</div>
+    </div>
+  </section>
+
+  <!-- 3. 试听 -->
+  <section class="panel">
+    <h2>3 · 试听</h2>
+
+    <div class="field">
+      <label class="lbl">试听文本</label>
+      <textarea id="text" rows="4"></textarea>
+      <div class="hint">用角色真实会说的话来试，评价才准。Ctrl/Cmd + Enter 直接播放。</div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="playBtn">试听</button>
+      <button id="stopBtn">停止</button>
+      <button id="snapshotBtn">存为对照</button>
+      <button id="compareBtn" disabled>播放对照</button>
+    </div>
+
+    <audio id="player" controls></audio>
+    <div class="status" id="status">尚未合成。</div>
+
+    <div class="field" style="margin-top:16px">
+      <div class="flex-between">
+        <label class="lbl" style="margin:0">可保存配置 <span id="rangeBadge" class="badge">在线范围内</span></label>
+        <button id="copyBtn" style="padding:5px 10px;font-size:12px">复制</button>
+      </div>
+      <textarea id="output" class="out" readonly spellcheck="false"></textarea>
+      <div class="hint" id="rangeHint">角色表只存 speech_rate / volume / pitch_rate，超出线上范围的值无法保存。</div>
+    </div>
+
+    <div class="field" id="snapshotBox" style="display:none">
+      <label class="lbl">对照快照</label>
+      <div class="hint" id="snapshotInfo"></div>
+    </div>
+  </section>
+</main>
+
+<details class="explain" open>
+  <summary>参数说明</summary>
+  <table>
+    <thead>
+      <tr><th>参数</th><th>作用</th><th>取值 / 默认</th><th>怎么用</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>voice</code><br>音色</td>
+        <td>说话人的音色本体，决定“这是谁的声音”。</td>
+        <td>音色 ID，必填</td>
+        <td>声音难听时优先级最高。换一个音色带来的差别，远大于把语速语调从 0.9 调到 1.1。</td>
+      </tr>
+      <tr>
+        <td><code>speech_rate</code><br>语速</td>
+        <td>整体语速倍率。</td>
+        <td>0.5–2.0，默认 1.0</td>
+        <td>0.95 左右像日常聊天，1.08 以上适合快节奏的怼人台词。低于 0.85 会明显拖沓。</td>
+      </tr>
+      <tr>
+        <td><code>volume</code><br>音量</td>
+        <td>输出响度，不改变音色和情绪。</td>
+        <td>0–100，默认 50</td>
+        <td>调到 60 左右只是变响，不会变“有感情”。别指望靠它救音色。</td>
+      </tr>
+      <tr>
+        <td><code>pitch_rate</code><br>语调</td>
+        <td>整体音高，实现方式是重采样。</td>
+        <td>0.5–2.0，默认 1.0</td>
+        <td>0.9–0.95 让声音更沉稳，1.05 左右更年轻。超过 1.15 会同时加快语速、缩短停顿，听起来失真。</td>
+      </tr>
+      <tr>
+        <td><code>language_type</code><br>语种</td>
+        <td>告诉模型用哪种语言发音。</td>
+        <td>Auto / Chinese / English 等；线上固定 English</td>
+        <td>线上每次合成都显式下发 English。改成 Auto 或 Chinese 只会影响本地试听，不会改变线上行为。</td>
+      </tr>
+      <tr>
+        <td><code>response_format</code><br>音频格式</td>
+        <td>输出音频的容器格式。</td>
+        <td>pcm / wav / mp3 / opus，默认 pcm</td>
+        <td>试听用 mp3 最省事。线上实时通话用 pcm，因为要按帧推流。</td>
+      </tr>
+      <tr>
+        <td><code>sample_rate</code><br>采样率</td>
+        <td>每秒采样次数，决定音频频响上限。</td>
+        <td>8000 / 16000 / 24000 / 48000，默认 24000</td>
+        <td>保持 24000 即可。8000 是电话音，会明显发闷；48000 对人声几乎没有额外收益。</td>
+      </tr>
+      <tr>
+        <td><code>bit_rate</code><br>码率</td>
+        <td>压缩码率，仅 opus 生效。</td>
+        <td>6–510 kbps，默认 128</td>
+        <td>只在格式选 opus 时可调。128 已经够用，调高只减少压缩损失。</td>
+      </tr>
+      <tr>
+        <td><code>mode</code><br>交互模式</td>
+        <td>服务端自动决定合成时机，还是客户端手动提交。</td>
+        <td>server_commit / commit，默认 server_commit</td>
+        <td>只影响推流时机，不影响音色。本工具固定 server_commit，与线上一致，所以没有开开关。</td>
+      </tr>
+    </tbody>
+  </table>
+</details>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+const PROJECT_RANGE = {
+  speech_rate: [0.75, 1.35],
+  volume: [20, 80],
+  pitch_rate: [0.85, 1.15],
+};
+
+const STORAGE_KEY = 'parlasoul.voice-tuner.v1';
+
+const state = {
+  meta: null,
+  voices: { catalog: [], clones: [] },
+  characters: [],
+  catalog: [],
+  snapshot: null,
+  currentUrl: null,
+  busy: false,
+};
+
+function clamp(value, lo, hi) {
+  return Math.min(hi, Math.max(lo, value));
+}
+
+function setStatus(message, kind) {
+  const el = $('status');
+  el.textContent = message;
+  el.className = 'status' + (kind ? ' ' + kind : '');
+}
+
+/* ---------------------------------------------------------------- 音色列表 */
+
+function buildVoiceGroups() {
+  const filter = $('voiceFilter').value.trim().toLowerCase();
+  const select = $('voice');
+  const previous = $('voiceId').value;
+  select.innerHTML = '';
+
+  const groups = new Map();
+  const push = (group, item) => {
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(item);
+  };
+
+  for (const item of state.catalog) {
+    const haystack = `${item.voice_id} ${item.name} ${item.hint}`.toLowerCase();
+    if (filter && !haystack.includes(filter)) continue;
+    push(item.source === 'clone' ? '克隆音色' : item.language, item);
+  }
+
+  for (const [group, items] of groups) {
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = group;
+    for (const item of items) {
+      const option = document.createElement('option');
+      option.value = item.voice_id;
+      option.textContent = `${item.name} · ${item.voice_id}`;
+      option.title = item.hint || '';
+      optgroup.appendChild(option);
+    }
+    select.appendChild(optgroup);
+  }
+
+  if (previous) {
+    select.value = previous;
+    if (select.value !== previous) {
+      const option = document.createElement('option');
+      option.value = previous;
+      option.textContent = `自定义 · ${previous}`;
+      select.appendChild(option);
+      select.value = previous;
+    }
+  }
+}
+
+function syncVoiceHint() {
+  const voiceId = $('voiceId').value;
+  const item = state.catalog.find((entry) => entry.voice_id === voiceId);
+  $('voiceHint').textContent = item
+    ? `${item.name}：${item.hint || '无描述'}`
+    : '换音色比调任何数值都更彻底，声音难听优先从这里换。';
+}
+
+/* ------------------------------------------------------------------ 表单 */
+
+function setRangeValue(key, value) {
+  const input = $(key);
+  input.value = value;
+  renderRangeLabel(key);
+}
+
+function renderRangeLabel(key) {
+  const value = Number($(key).value);
+  if (key === 'volume' || key === 'bitRate') {
+    $(key + 'Value').textContent = String(Math.round(value));
+  } else {
+    $(key + 'Value').textContent = value.toFixed(2);
+  }
+}
+
+function renderSampleRates() {
+  const format = $('format').value;
+  const option = (state.meta.formats || []).find((item) => item.id === format);
+  const select = $('sampleRate');
+  const previous = Number(select.value) || 24000;
+  select.innerHTML = '';
+  const rates = option ? option.sample_rates : [24000];
+  for (const rate of rates) {
+    const el = document.createElement('option');
+    el.value = String(rate);
+    el.textContent = `${rate} Hz`;
+    select.appendChild(el);
+  }
+  select.value = String(rates.includes(previous) ? previous : rates[rates.length - 1]);
+  const opus = format === 'opus';
+  $('bitRate').disabled = !opus;
+  $('bitRateHint').textContent = opus
+    ? '当前格式为 opus，可调 6–510 kbps。'
+    : '仅 opus 格式生效，当前格式下不会发送。';
+}
+
+function collect() {
+  return {
+    text: $('text').value,
+    voice: $('voiceId').value.trim(),
+    model: $('model').value,
+    speech_rate: Number($('speechRate').value),
+    volume: Math.round(Number($('volume').value)),
+    pitch_rate: Number($('pitchRate').value),
+    language_type: $('languageType').value,
+    response_format: $('format').value,
+    sample_rate: Number($('sampleRate').value),
+    bit_rate: $('format').value === 'opus' ? Math.round(Number($('bitRate').value)) : null,
+  };
+}
+
+function applyConfig(config) {
+  if (!config) return;
+  if (config.voice) {
+    $('voiceId').value = config.voice;
+    const select = $('voice');
+    if (!Array.from(select.options).some((option) => option.value === config.voice)) {
+      const option = document.createElement('option');
+      option.value = config.voice;
+      option.textContent = `自定义 · ${config.voice}`;
+      select.appendChild(option);
+    }
+    select.value = config.voice;
+  }
+  if (config.model) $('model').value = config.model;
+  if (typeof config.speech_rate === 'number') $('speechRate').value = config.speech_rate;
+  if (typeof config.volume === 'number') $('volume').value = config.volume;
+  if (typeof config.pitch_rate === 'number') $('pitchRate').value = config.pitch_rate;
+  if (config.language_type) $('languageType').value = config.language_type;
+  if (config.response_format) {
+    $('format').value = config.response_format;
+    renderSampleRates();
+  }
+  if (config.sample_rate) $('sampleRate').value = String(config.sample_rate);
+  if (typeof config.bit_rate === 'number') $('bitRate').value = config.bit_rate;
+  for (const key of ['speechRate', 'volume', 'pitchRate', 'bitRate']) renderRangeLabel(key);
+  renderModelHint();
+  syncVoiceHint();
+}
+
+function renderModelHint() {
+  const model = $('model').value;
+  const option = (state.meta.models || []).find((item) => item.id === model);
+  $('modelHint').textContent = option ? option.note : '';
+}
+
+/* ------------------------------------------------------------------ 输出 */
+
+function buildOutput() {
+  const config = collect();
+  const profile = {
+    base_voice_id: config.voice,
+    speech_rate: Number(config.speech_rate.toFixed(3)),
+    volume: config.volume,
+    pitch_rate: Number(config.pitch_rate.toFixed(3)),
+  };
+  return {
+    voice_provider: 'dashscope',
+    voice_model: config.model,
+    voice_provider_voice_id: config.voice,
+    voice_profile: profile,
+  };
+}
+
+function renderOutput() {
+  const payload = buildOutput();
+  $('output').value = JSON.stringify(payload, null, 2);
+
+  const problems = [];
+  for (const [key, [lo, hi]] of Object.entries(PROJECT_RANGE)) {
+    const value = payload.voice_profile[key];
+    if (value < lo || value > hi) {
+      problems.push(`${key}=${value} 超出线上范围 ${lo}–${hi}`);
+    }
+  }
+  const badge = $('rangeBadge');
+  if (problems.length === 0) {
+    badge.textContent = '在线范围内';
+    badge.className = 'badge';
+    $('rangeHint').textContent = '角色表只存 speech_rate / volume / pitch_rate，当前值可以直接保存。';
+  } else {
+    badge.textContent = '超出线上范围';
+    badge.className = 'badge bad';
+    $('rangeHint').textContent = problems.join('；') + '。保存到角色前需要回到范围内。';
+  }
+}
+
+/* ------------------------------------------------------------------ 合成 */
+
+async function requestAudio(config) {
+  const response = await fetch('/api/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  const contentType = response.headers.get('Content-Type') || '';
+  if (!response.ok || contentType.includes('application/json')) {
+    let message = `HTTP ${response.status}`;
+    try {
+      const body = await response.json();
+      message = body.message || body.detail || message;
+    } catch (error) {
+      /* 响应体不是 JSON 时保留状态码 */
+    }
+    throw new Error(message);
+  }
+  return response.blob();
+}
+
+async function play(config) {
+  if (state.busy) return;
+  state.busy = true;
+  $('playBtn').disabled = true;
+  $('compareBtn').disabled = true;
+  setStatus('正在合成…');
+  const startedAt = performance.now();
+  try {
+    const blob = await requestAudio(config);
+    const elapsed = Math.round(performance.now() - startedAt);
+    if (state.currentUrl) URL.revokeObjectURL(state.currentUrl);
+    state.currentUrl = URL.createObjectURL(blob);
+    const player = $('player');
+    player.src = state.currentUrl;
+    await player.play();
+    setStatus(`合成完成：${(blob.size / 1024).toFixed(1)} KB，耗时 ${elapsed} ms。`, 'ok');
+  } catch (error) {
+    setStatus(`合成失败：${error.message}`, 'error');
+  } finally {
+    state.busy = false;
+    $('playBtn').disabled = false;
+    $('compareBtn').disabled = !state.snapshot;
+  }
+}
+
+/* ------------------------------------------------------------------ 数据 */
+
+async function loadBootstrap() {
+  const [meta, voices, characters] = await Promise.all([
+    fetch('/api/meta').then((r) => r.json()),
+    fetch('/api/voices').then((r) => r.json()),
+    fetch('/api/characters').then((r) => r.json()),
+  ]);
+
+  state.meta = meta;
+  state.voices = voices;
+  state.catalog = [...(voices.catalog || []), ...(voices.clones || [])];
+  state.characters = characters.characters || [];
+
+  $('text').value = meta.default_text;
+  $('model').innerHTML = '';
+  for (const item of meta.models) {
+    const option = document.createElement('option');
+    option.value = item.id;
+    option.textContent = item.label;
+    $('model').appendChild(option);
+  }
+  $('model').value = meta.default_model;
+
+  $('languageType').innerHTML = '';
+  for (const language of meta.languages) {
+    const option = document.createElement('option');
+    option.value = language;
+    option.textContent = language === 'Auto' ? 'Auto（自动判断）' : language;
+    $('languageType').appendChild(option);
+  }
+  $('languageType').value = 'English';
+
+  $('format').innerHTML = '';
+  for (const item of meta.formats) {
+    const option = document.createElement('option');
+    option.value = item.id;
+    option.textContent = item.label;
+    $('format').appendChild(option);
+  }
+  $('format').value = 'mp3';
+
+  $('character').innerHTML = '<option value="">— 手动配置 —</option>';
+  for (const item of state.characters) {
+    const option = document.createElement('option');
+    option.value = item.id;
+    option.textContent = `${item.name}${item.identifier ? ` (${item.identifier})` : ''}`;
+    $('character').appendChild(option);
+  }
+
+  buildVoiceGroups();
+  renderSampleRates();
+  renderModelHint();
+
+  const messages = [];
+  if (voices.clone_error) messages.push(`克隆音色读取失败：${voices.clone_error}`);
+  if (characters.error) messages.push(`角色读取失败：${characters.error}`);
+  if (!meta.api_key_configured) messages.push('未检测到 DASHSCOPE_API_KEY，合成会失败。');
+  if (messages.length) {
+    setStatus(messages.join(' / '), 'error');
+  }
+
+  restoreDraft();
+}
+
+function restoreDraft() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    $('voiceId').value = 'Cherry';
+    $('voice').value = 'Cherry';
+    syncVoiceHint();
+    renderOutput();
+    return;
+  }
+  try {
+    const draft = JSON.parse(raw);
+    applyConfig(draft);
+    if (draft.text) $('text').value = draft.text;
+    if (draft.snapshot) {
+      state.snapshot = draft.snapshot;
+      renderSnapshot();
+    }
+  } catch (error) {
+    /* 草稿损坏时用默认值 */
+  }
+  renderOutput();
+}
+
+function saveDraft() {
+  const draft = collect();
+  draft.snapshot = state.snapshot;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+}
+
+function renderSnapshot() {
+  const box = $('snapshotBox');
+  if (!state.snapshot) {
+    box.style.display = 'none';
+    $('compareBtn').disabled = true;
+    return;
+  }
+  box.style.display = '';
+  $('compareBtn').disabled = false;
+  const profile = state.snapshot;
+  $('snapshotInfo').textContent =
+    `${profile.voice} · 语速 ${Number(profile.speech_rate).toFixed(2)} · ` +
+    `音量 ${profile.volume} · 语调 ${Number(profile.pitch_rate).toFixed(2)}`;
+}
+
+/* ------------------------------------------------------------------ 绑定 */
+
+function bindEvents() {
+  $('voiceFilter').addEventListener('input', buildVoiceGroups);
+  $('voice').addEventListener('change', () => {
+    $('voiceId').value = $('voice').value;
+    syncVoiceHint();
+    renderOutput();
+    saveDraft();
+  });
+  $('voiceId').addEventListener('input', () => {
+    syncVoiceHint();
+    renderOutput();
+    saveDraft();
+  });
+  $('model').addEventListener('change', renderModelHint);
+
+  for (const key of ['speechRate', 'volume', 'pitchRate', 'bitRate']) {
+    $(key).addEventListener('input', () => {
+      renderRangeLabel(key);
+      renderOutput();
+      saveDraft();
+    });
+  }
+
+  for (const key of ['languageType', 'format', 'sampleRate', 'model']) {
+    $(key).addEventListener('change', () => {
+      if (key === 'format') renderSampleRates();
+      renderOutput();
+      saveDraft();
+    });
+  }
+
+  $('text').addEventListener('input', saveDraft);
+
+  $('character').addEventListener('change', () => {
+    const selected = state.characters.find((item) => item.id === $('character').value);
+    if (!selected) {
+      $('characterHint').textContent = '选一个角色会把它的音色和参数带过来。';
+      return;
+    }
+    const profile = selected.voice_profile || {};
+    applyConfig({
+      voice: selected.voice_provider_voice_id,
+      model: selected.voice_model,
+      speech_rate: profile.speech_rate ?? 1,
+      volume: profile.volume ?? 50,
+      pitch_rate: profile.pitch_rate ?? 1,
+    });
+    $('characterHint').textContent =
+      `${selected.name} · ${selected.voice_source_type} · ${selected.voice_provider_voice_id}`;
+    renderOutput();
+    saveDraft();
+  });
+
+  $('playBtn').addEventListener('click', () => play(collect()));
+
+  $('stopBtn').addEventListener('click', () => {
+    $('player').pause();
+    $('player').currentTime = 0;
+    setStatus('已停止。');
+  });
+
+  $('snapshotBtn').addEventListener('click', () => {
+    state.snapshot = collect();
+    renderSnapshot();
+    saveDraft();
+    setStatus('已把当前参数存为对照，改完参数后点「播放对照」即可和它对比。', 'ok');
+  });
+
+  $('compareBtn').addEventListener('click', () => play(state.snapshot));
+
+  $('copyBtn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('output').value);
+      setStatus('配置已复制到剪贴板。', 'ok');
+    } catch (error) {
+      $('output').select();
+      setStatus('浏览器拒绝了剪贴板写入，已选中文本，手动复制即可。');
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault();
+      play(collect());
+    }
+  });
+}
+
+async function main() {
+  bindEvents();
+  try {
+    await loadBootstrap();
+  } catch (error) {
+    setStatus(`初始化失败：${error.message}`, 'error');
+  }
+}
+
+main();
+</script>
+</body>
+</html>
