@@ -1094,7 +1094,6 @@ class TurnService:
 
             generation_context = ChatGenerationContext(
                 character_system_prompt=prep.character.system_prompt,
-                dialogue_style_id=getattr(prep.character, "dialogue_style_id", None),
                 history_messages=history_messages,
                 user_message=outbound_user_content,
                 memories=relevant_memories,
@@ -1909,7 +1908,6 @@ class TurnService:
 
             generation_context = ChatGenerationContext(
                 character_system_prompt=prep.character.system_prompt,
-                dialogue_style_id=getattr(prep.character, "dialogue_style_id", None),
                 history_messages=history_messages,
                 user_message=CONTINUE_PROMPT,
                 memories=relevant_memories,
@@ -2760,7 +2758,6 @@ class TurnService:
 
             generation_context = ChatGenerationContext(
                 character_system_prompt=prep.character.system_prompt,
-                dialogue_style_id=getattr(prep.character, "dialogue_style_id", None),
                 history_messages=history_messages,
                 user_message=outbound_user_content,
                 memories=relevant_memories,

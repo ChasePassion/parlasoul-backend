@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from src.core.dialogue_styles import LIFE_PERSPECTIVE_INSTRUCTION, build_dialogue_style_block
 from src.memory_system import MemoryRecord
+from src.services.chat_generation_service import LIFE_PERSPECTIVE_INSTRUCTION
 
 PROACTIVE_MEMORY_PROMPT = """\
 In past conversations with the user, you have remembered many things. These are your memories.
@@ -48,16 +48,12 @@ PROACTIVE_MESSAGE_PROMPT = (
 def build_proactive_messages(
     *,
     character_system_prompt: str,
-    dialogue_style_id: str | None,
     memories: dict[str, list[MemoryRecord]],
     user_name: str,
     last_interaction_days: int,
     max_episodic_memories: int,
 ) -> list[dict[str, str]]:
     system_parts: list[str] = [(character_system_prompt or "").strip(), "", LIFE_PERSPECTIVE_INSTRUCTION]
-    style_block = build_dialogue_style_block(dialogue_style_id)
-    if style_block:
-        system_parts.extend(["", style_block])
 
     episodic_text, semantic_text = _format_memories(
         memories=memories,

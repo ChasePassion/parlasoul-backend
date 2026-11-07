@@ -24,13 +24,18 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from src.core.dialogue_styles import LIFE_PERSPECTIVE_INSTRUCTION, build_dialogue_style_block
 from src.core.llm_registry import ResolvedLLMRoute
 from src.memory_system import MemoryRecord
 from src.memory_system.prompts import MEMORY_ANSWER_PROMPT
 from src.schemas.chat import ChatImageRef
 from src.services.chat_learning_service import ChatLearningService
 from src.services.llm_gateway_service import LLMGatewayService, RetryPolicy
+
+LIFE_PERSPECTIVE_INSTRUCTION = (
+    "When it feels natural, you may let your unique life experiences "
+    "and the perspectives they've shaped subtly inform your responses—"
+    "there's no need to force it."
+)
 
 ChannelPolicy = Literal["chat", "voice"]
 
@@ -57,7 +62,6 @@ class ChatGenerationContext:
     """
 
     character_system_prompt: str
-    dialogue_style_id: str | None
     history_messages: list[dict[str, Any]]
     user_message: str
     memories: dict[str, list[MemoryRecord]]
@@ -89,11 +93,6 @@ def build_llm_system_prompt(context: ChatGenerationContext) -> str:
     parts.append((context.character_system_prompt or "").strip())
     parts.append("")
     parts.append(LIFE_PERSPECTIVE_INSTRUCTION)
-
-    style_block = build_dialogue_style_block(context.dialogue_style_id)
-    if style_block:
-        parts.append("")
-        parts.append(style_block)
 
     if context.memory_active:
         parts.append("")

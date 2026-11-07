@@ -106,7 +106,6 @@ _REQUIRED_COLUMNS: dict[str, set[str]] = {
         "voice_provider_voice_id",
         "voice_source_type",
         "llm_preset_id",
-        "dialogue_style_id",
         "status",
         "unpublished_at",
     },

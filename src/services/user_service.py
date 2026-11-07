@@ -51,7 +51,6 @@ def _to_character_response(
         voice_provider_voice_id=character.voice_provider_voice_id,
         voice_source_type=character.voice_source_type,
         llm_preset_id=character.llm_preset_id,
-        dialogue_style_id=character.dialogue_style_id,
         creator_id=str(character.creator_id) if character.creator_id else None,
         creator_username=creator_username,
         status=character.status,

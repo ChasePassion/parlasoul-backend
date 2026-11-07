@@ -28,12 +28,7 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlmodel import Field, Relationship, SQLModel
 
 from src.core.config import settings
-from src.core.dialogue_styles import (
-    DEFAULT_DIALOGUE_STYLE_ID,
-    DIALOGUE_STYLES_BY_ID,
-    LLM_PRESET_FREE,
-    LLM_PRESET_IDS,
-)
+from src.core.llm_presets import LLM_PRESET_FREE, LLM_PRESET_IDS
 from src.core.tts_registry import (
     DEFAULT_SYSTEM_TTS_MODEL,
     DEFAULT_SYSTEM_TTS_PROVIDER,
@@ -750,13 +745,6 @@ class Character(Base, table=True):
             f"llm_preset_id IN ({', '.join(repr(item) for item in sorted(LLM_PRESET_IDS))})",
             name="characters_llm_preset_id_check",
         ),
-        CheckConstraint(
-            (
-                "dialogue_style_id IN "
-                f"({', '.join(repr(item) for item in sorted(DIALOGUE_STYLES_BY_ID))})"
-            ),
-            name="characters_dialogue_style_id_check",
-        ),
         Index(
             "characters_voice_binding_idx",
             "voice_provider",
@@ -794,14 +782,6 @@ class Character(Base, table=True):
     llm_preset_id: str = Field(
         default=LLM_PRESET_FREE,
         sa_column=Column(String(40), nullable=False, server_default=LLM_PRESET_FREE),
-    )
-    dialogue_style_id: str = Field(
-        default=DEFAULT_DIALOGUE_STYLE_ID,
-        sa_column=Column(
-            String(40),
-            nullable=False,
-            server_default=DEFAULT_DIALOGUE_STYLE_ID,
-        ),
     )
     status: str = Field(
         default=CharacterStatusType.ACTIVE.value,

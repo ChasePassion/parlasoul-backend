@@ -156,7 +156,6 @@ class ProactiveMessageJob:
         user_name = _user_name(user)
         messages = build_proactive_messages(
             character_system_prompt=character.system_prompt,
-            dialogue_style_id=getattr(character, "dialogue_style_id", None),
             memories=memories,
             user_name=user_name,
             last_interaction_days=last_interaction_days,

@@ -203,7 +203,6 @@ async def test_generation_seam_capture_toggle(
 
     context = ChatGenerationContext(
         character_system_prompt="be kind",
-        dialogue_style_id=None,
         history_messages=[],
         user_message="hello there",
         memories={"episodic": [], "semantic": []},

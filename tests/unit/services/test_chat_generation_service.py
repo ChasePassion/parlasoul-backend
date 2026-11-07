@@ -12,7 +12,6 @@ from typing import Any
 
 import pytest
 
-from src.core.dialogue_styles import build_dialogue_style_block
 from src.memory_system import MemoryRecord
 from src.memory_system.prompts import MEMORY_ANSWER_PROMPT
 from src.schemas.chat import ChatImageRef
@@ -43,7 +42,6 @@ def _record(text: str, memory_type: str, index: int) -> MemoryRecord:
 def _context(**overrides: Any) -> ChatGenerationContext:
     base: dict[str, Any] = {
         "character_system_prompt": _CHARACTER_PROMPT,
-        "dialogue_style_id": None,
         "history_messages": [],
         "user_message": "hi",
         "memories": {"episodic": [], "semantic": []},
@@ -57,7 +55,6 @@ def _context(**overrides: Any) -> ChatGenerationContext:
 def test_prompt_layout_preserves_section_ordering() -> None:
     context = _context(
         character_system_prompt="<<CHAR_PROMPT>>",
-        dialogue_style_id="spring_breeze",
         memories={
             "episodic": [_record("<<EPISODIC_1>>", "episodic", 1)],
             "semantic": [_record("<<SEMANTIC_1>>", "semantic", 2)],
@@ -66,15 +63,13 @@ def test_prompt_layout_preserves_section_ordering() -> None:
         memory_active=True,
         channel_policy="voice",
     )
-    style_block = build_dialogue_style_block("spring_breeze")
 
     prompt = build_llm_system_prompt(context)
 
     assert prompt.startswith("<<CHAR_PROMPT>>")
     assert prompt.endswith(VOICE_CHANNEL_POLICY.strip())
     assert (
-        prompt.index(style_block)
-        < prompt.index("<<EPISODIC_1>>")
+        prompt.index("<<EPISODIC_1>>")
         < prompt.index("<<SEMANTIC_1>>")
         < prompt.index("<<PREFERRED>>")
         < prompt.index(VOICE_CHANNEL_POLICY.strip())

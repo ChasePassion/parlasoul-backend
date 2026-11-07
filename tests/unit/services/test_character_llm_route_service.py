@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from src.core.dialogue_styles import LLM_PRESET_FLAGSHIP
 from src.core.exceptions import APIError
+from src.core.llm_presets import LLM_PRESET_FLAGSHIP
 from src.core.llm_registry import LLMRegistry, LLMRouter
 from src.core.llm_settings import llm_settings
 from src.db.models import Character

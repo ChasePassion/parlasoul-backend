@@ -10,7 +10,6 @@ from src.services.chat_generation_service import (
 def _voice_context(character_prompt: str, history_messages: list | None = None) -> ChatGenerationContext:
     return ChatGenerationContext(
         character_system_prompt=character_prompt,
-        dialogue_style_id=None,
         history_messages=history_messages or [],
         user_message="hello",
         memories={"episodic": [], "semantic": []},

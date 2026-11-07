@@ -100,11 +100,10 @@ async def test_create_character_uses_defaults_and_returns_response() -> None:
     assert created_arg.voice_provider_voice_id == DEFAULT_SYSTEM_TTS_VOICE_ID
     assert created_arg.voice_source_type == "system"
     assert created_arg.llm_preset_id == "free"
-    assert created_arg.dialogue_style_id == "true_nature"
 
 
 @pytest.mark.asyncio
-async def test_create_character_persists_preset_and_dialogue_style() -> None:
+async def test_create_character_persists_preset() -> None:
     user = _build_user()
     repo = CharacterRepository.__new__(CharacterRepository)
     voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
@@ -127,7 +126,6 @@ async def test_create_character_persists_preset_and_dialogue_style() -> None:
         description="B",
         system_prompt="C",
         llm_preset_id="flagship",
-        dialogue_style_id="spring_breeze",
         visibility=VisibilityEnum.PRIVATE,
     )
 
@@ -135,9 +133,7 @@ async def test_create_character_persists_preset_and_dialogue_style() -> None:
 
     created_arg = repo.create.await_args.args[0]
     assert created_arg.llm_preset_id == "flagship"
-    assert created_arg.dialogue_style_id == "spring_breeze"
     assert result.llm_preset_id == "flagship"
-    assert result.dialogue_style_id == "spring_breeze"
 
 
 @pytest.mark.asyncio
@@ -206,12 +202,11 @@ async def test_create_character_allows_flagship_preset_when_paywall_disabled() -
 
 
 @pytest.mark.asyncio
-async def test_update_character_persists_preset_and_dialogue_style() -> None:
+async def test_update_character_persists_preset() -> None:
     owner = _build_user()
     original = _build_character(creator_id=owner.id)
     updated = _build_character(character_id=original.id, creator_id=owner.id)
     updated.llm_preset_id = "flagship"
-    updated.dialogue_style_id = "proud_resolve"
 
     repo = CharacterRepository.__new__(CharacterRepository)
     repo.get_by_id = AsyncMock(return_value=original)
@@ -227,14 +222,12 @@ async def test_update_character_persists_preset_and_dialogue_style() -> None:
         subscription_service=_build_subscription_service(tier="plus"),
     )
 
-    payload = CharacterUpdate(llm_preset_id="flagship", dialogue_style_id="proud_resolve")
+    payload = CharacterUpdate(llm_preset_id="flagship")
     result = await service.update_character(original.id, character_in=payload, current_user=owner)
 
     update_data = repo.update.await_args.args[1]
     assert update_data["llm_preset_id"] == "flagship"
-    assert update_data["dialogue_style_id"] == "proud_resolve"
     assert result.llm_preset_id == "flagship"
-    assert result.dialogue_style_id == "proud_resolve"
 
 
 @pytest.mark.asyncio
