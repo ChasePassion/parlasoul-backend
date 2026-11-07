@@ -22,6 +22,17 @@ from src.schemas.learning import (
 _SUPPORTED_SAVED_ITEM_KINDS: set[str] = {"reply_card", "word_card", "feedback_card"}
 
 
+def _parse_uuid_or_raise(value: str, *, code: str, field_name: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        raise APIError(
+            status_code=400,
+            code=code,
+            message=f"invalid request: {field_name} must be a valid UUID",
+        )
+
+
 def _normalize_kind(kind: str) -> SavedItemKind:
     normalized = (kind or "").strip()
     if normalized not in _SUPPORTED_SAVED_ITEM_KINDS:
@@ -232,32 +243,15 @@ class SavedItemService:
         parsed_chat_id = None
         normalized_kind = _normalize_kind(kind) if kind else None
         if role_id:
-            try:
-                parsed_role_id = uuid.UUID(role_id)
-            except ValueError:
-                raise APIError(
-                    status_code=400,
-                    code="saved_item_filter_invalid",
-                    message="invalid request: role_id must be a valid UUID",
-                )
+            parsed_role_id = _parse_uuid_or_raise(
+                role_id, code="saved_item_filter_invalid", field_name="role_id"
+            )
         if chat_id:
-            try:
-                parsed_chat_id = uuid.UUID(chat_id)
-            except ValueError:
-                raise APIError(
-                    status_code=400,
-                    code="saved_item_filter_invalid",
-                    message="invalid request: chat_id must be a valid UUID",
-                )
+            parsed_chat_id = _parse_uuid_or_raise(
+                chat_id, code="saved_item_filter_invalid", field_name="chat_id"
+            )
         if cursor:
-            try:
-                uuid.UUID(cursor)
-            except ValueError:
-                raise APIError(
-                    status_code=400,
-                    code="saved_item_cursor_invalid",
-                    message="invalid request: cursor must be a valid UUID",
-                )
+            _parse_uuid_or_raise(cursor, code="saved_item_cursor_invalid", field_name="cursor")
 
         items, next_cursor, has_more = await self._repo.list_by_user(
             user_id=current_user.id,
@@ -279,14 +273,9 @@ class SavedItemService:
         saved_item_id: str,
         current_user: User,
     ) -> None:
-        try:
-            item_id = uuid.UUID(saved_item_id)
-        except ValueError:
-            raise APIError(
-                status_code=400,
-                code="saved_item_id_invalid",
-                message="invalid request: saved_item_id must be a valid UUID",
-            )
+        item_id = _parse_uuid_or_raise(
+            saved_item_id, code="saved_item_id_invalid", field_name="saved_item_id"
+        )
 
         async with self._uow.transactional():
             item = await self._repo.get_by_id_and_user(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import cast
 
 from src.core.config import settings as app_settings
@@ -48,26 +49,29 @@ class UserSettingsService:
         self._uow: UnitOfWork = uow
         self._subscription_service: SubscriptionService = subscription_service
 
+    async def _get_or_create_settings(self, user_id: uuid.UUID) -> UserSettings:
+        return await self._settings_repo.get_or_create(
+            user_id,
+            default_font_size=app_settings.USER_SETTINGS_MESSAGE_FONT_SIZE_DEFAULT,
+            default_display_mode=app_settings.USER_SETTINGS_DISPLAY_MODE_DEFAULT,
+            default_memory_enabled=True,
+            default_reply_card_enabled=app_settings.USER_SETTINGS_REPLY_CARD_ENABLED_DEFAULT,
+            default_mixed_input_auto_translate_enabled=(
+                app_settings.USER_SETTINGS_MIXED_INPUT_AUTO_TRANSLATE_ENABLED_DEFAULT
+            ),
+            default_auto_read_aloud_enabled=(
+                app_settings.USER_SETTINGS_AUTO_READ_ALOUD_ENABLED_DEFAULT
+            ),
+            default_preferred_expression_bias_enabled=(
+                app_settings.USER_SETTINGS_PREFERRED_EXPRESSION_BIAS_ENABLED_DEFAULT
+            ),
+            default_proactive_enabled=app_settings.USER_SETTINGS_PROACTIVE_ENABLED_DEFAULT,
+            default_timezone=app_settings.USER_SETTINGS_TIMEZONE_DEFAULT,
+        )
+
     async def get_my_settings(self, current_user: User) -> UserSettingsResponse:
         async with self._uow.transactional():
-            settings = await self._settings_repo.get_or_create(
-                current_user.id,
-                default_font_size=app_settings.USER_SETTINGS_MESSAGE_FONT_SIZE_DEFAULT,
-                default_display_mode=app_settings.USER_SETTINGS_DISPLAY_MODE_DEFAULT,
-                default_memory_enabled=True,
-                default_reply_card_enabled=app_settings.USER_SETTINGS_REPLY_CARD_ENABLED_DEFAULT,
-                default_mixed_input_auto_translate_enabled=(
-                    app_settings.USER_SETTINGS_MIXED_INPUT_AUTO_TRANSLATE_ENABLED_DEFAULT
-                ),
-                default_auto_read_aloud_enabled=(
-                    app_settings.USER_SETTINGS_AUTO_READ_ALOUD_ENABLED_DEFAULT
-                ),
-                default_preferred_expression_bias_enabled=(
-                    app_settings.USER_SETTINGS_PREFERRED_EXPRESSION_BIAS_ENABLED_DEFAULT
-                ),
-                default_proactive_enabled=app_settings.USER_SETTINGS_PROACTIVE_ENABLED_DEFAULT,
-                default_timezone=app_settings.USER_SETTINGS_TIMEZONE_DEFAULT,
-            )
+            settings = await self._get_or_create_settings(current_user.id)
         return _to_settings_response(settings)
 
     async def update_my_settings(
@@ -102,24 +106,7 @@ class UserSettingsService:
             await self._subscription_service.assert_feature(current_user, "memory_feature")
 
         async with self._uow.transactional():
-            settings = await self._settings_repo.get_or_create(
-                current_user.id,
-                default_font_size=app_settings.USER_SETTINGS_MESSAGE_FONT_SIZE_DEFAULT,
-                default_display_mode=app_settings.USER_SETTINGS_DISPLAY_MODE_DEFAULT,
-                default_memory_enabled=True,
-                default_reply_card_enabled=app_settings.USER_SETTINGS_REPLY_CARD_ENABLED_DEFAULT,
-                default_mixed_input_auto_translate_enabled=(
-                    app_settings.USER_SETTINGS_MIXED_INPUT_AUTO_TRANSLATE_ENABLED_DEFAULT
-                ),
-                default_auto_read_aloud_enabled=(
-                    app_settings.USER_SETTINGS_AUTO_READ_ALOUD_ENABLED_DEFAULT
-                ),
-                default_preferred_expression_bias_enabled=(
-                    app_settings.USER_SETTINGS_PREFERRED_EXPRESSION_BIAS_ENABLED_DEFAULT
-                ),
-                default_proactive_enabled=app_settings.USER_SETTINGS_PROACTIVE_ENABLED_DEFAULT,
-                default_timezone=app_settings.USER_SETTINGS_TIMEZONE_DEFAULT,
-            )
+            settings = await self._get_or_create_settings(current_user.id)
             updated = await self._settings_repo.update(
                 settings,
                 message_font_size=settings_update.message_font_size,

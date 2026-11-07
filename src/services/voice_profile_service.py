@@ -266,6 +266,18 @@ class VoiceProfileService:
         # Local placeholder IDs mean clone creation never produced a real upstream voice.
         return provider_voice_id.startswith("pending-")
 
+    async def _require_owned_profile(self, voice_id: uuid.UUID, current_user: User) -> VoiceProfile:
+        profile = await self._repo.get_by_id_for_owner(
+            voice_id=voice_id, owner_user_id=current_user.id
+        )
+        if not profile:
+            raise APIError(
+                status_code=404,
+                code="voice_profile_not_found",
+                message=f"resource not found: voice profile does not exist; voice_id={voice_id}",
+            )
+        return profile
+
     async def _list_bound_character_ids(
         self,
         *,
@@ -564,15 +576,7 @@ class VoiceProfileService:
         voice_id: uuid.UUID,
         current_user: User,
     ) -> VoiceProfileResponse:
-        profile = await self._repo.get_by_id_for_owner(
-            voice_id=voice_id, owner_user_id=current_user.id
-        )
-        if not profile:
-            raise APIError(
-                status_code=404,
-                code="voice_profile_not_found",
-                message=f"resource not found: voice profile does not exist; voice_id={voice_id}",
-            )
+        profile = await self._require_owned_profile(voice_id, current_user)
         bound_character_ids = await self._list_bound_character_ids(
             profile=profile, current_user=current_user
         )
@@ -589,15 +593,7 @@ class VoiceProfileService:
         current_user: User,
         patch_data: dict[str, object],
     ) -> VoiceProfileResponse:
-        profile = await self._repo.get_by_id_for_owner(
-            voice_id=voice_id, owner_user_id=current_user.id
-        )
-        if not profile:
-            raise APIError(
-                status_code=404,
-                code="voice_profile_not_found",
-                message=f"resource not found: voice profile does not exist; voice_id={voice_id}",
-            )
+        profile = await self._require_owned_profile(voice_id, current_user)
 
         update_data: dict[str, object] = {}
         requested_character_ids: list[uuid.UUID] | None = None
@@ -673,15 +669,7 @@ class VoiceProfileService:
         current_user: User,
         audio_format: str,
     ) -> tuple[str, AsyncGenerator[bytes, None]]:
-        profile = await self._repo.get_by_id_for_owner(
-            voice_id=voice_id, owner_user_id=current_user.id
-        )
-        if not profile:
-            raise APIError(
-                status_code=404,
-                code="voice_profile_not_found",
-                message=f"resource not found: voice profile does not exist; voice_id={voice_id}",
-            )
+        profile = await self._require_owned_profile(voice_id, current_user)
         if profile.source_type != VoiceSourceType.CLONE.value:
             raise APIError(
                 status_code=400,
@@ -754,15 +742,7 @@ class VoiceProfileService:
         voice_id: uuid.UUID,
         current_user: User,
     ) -> None:
-        profile = await self._repo.get_by_id_for_owner(
-            voice_id=voice_id, owner_user_id=current_user.id
-        )
-        if not profile:
-            raise APIError(
-                status_code=404,
-                code="voice_profile_not_found",
-                message=f"resource not found: voice profile does not exist; voice_id={voice_id}",
-            )
+        profile = await self._require_owned_profile(voice_id, current_user)
 
         refs = await self._repo.count_referenced_characters(
             provider=profile.provider,
