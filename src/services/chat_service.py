@@ -130,10 +130,6 @@ def _chat_sort_at(chat: Chat) -> datetime:
     return chat.last_turn_at or chat.created_at or _now_utc()
 
 
-def _derive_proactive_chat_title(content: str) -> str:
-    return _CHAT_TITLE_DEFAULT
-
-
 def _character_brief(
     c: Character,
     *,
@@ -793,7 +789,7 @@ class ChatService:
                 state=ChatState.ACTIVE.value,
                 visibility=VisibilityType.PRIVATE.value,
                 origin=ChatOriginType.PROACTIVE.value,
-                title=_derive_proactive_chat_title(message),
+                title=_CHAT_TITLE_DEFAULT,
                 meta=meta,
                 last_turn_no=0,
             )
@@ -1011,28 +1007,11 @@ class ChatService:
             },
         )
 
-    async def stream_chat(
-        self,
-        current_user: User,
-        chat_id: uuid.UUID,
-        content: str,
-    ) -> AsyncGenerator[str, None]:
-        prep = await self._prepare_stream(
-            current_user=current_user, chat_id=chat_id, content=content
-        )
-        async for item in self.stream_chat_with_prep(
-            prep=prep,
-            current_user=current_user,
-            content=content,
-        ):
-            yield item
-
     async def stream_chat_with_prep(
         self,
         prep: _StreamPrep,
         current_user: User,
         content: str,
-        images: list[ChatImageRef] | None = None,
     ) -> AsyncGenerator[str, None]:
 
         timing: dict[str, float] = dict(prep.timing) if prep.timing else {}

@@ -35,7 +35,6 @@ SubscriptionTier = Literal["free", "plus", "pro"]
 
 logger = logging.getLogger(__name__)
 
-_ACTIVE_LIKE_STATUSES = {"active", "renewed"}
 _INACTIVE_STATUSES = {"expired", "failed", "on_hold", "pending"}
 _SUPPORTED_SUBSCRIPTION_EVENTS = {
     "subscription.active",
@@ -565,10 +564,6 @@ class SubscriptionService:
             return "free"
         if status in _INACTIVE_STATUSES:
             return "free"
-        if status == "cancelled" and current_period_end is not None and current_period_end <= now:
-            return "free"
-        if not status or status in _ACTIVE_LIKE_STATUSES or status == "cancelled":
-            return tier
         return tier
 
     def _get_recurring_effective_expires_at(self, user: User) -> datetime | None:

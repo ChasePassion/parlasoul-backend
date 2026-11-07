@@ -168,8 +168,6 @@ class _ContinuePrep:
     character: Character
     resolved_llm_route: ResolvedCharacterLLMRoute
     source_assistant_turn_id: uuid.UUID
-    system_turn_id: uuid.UUID
-    system_candidate_id: uuid.UUID
     assistant_turn_id: uuid.UUID
     assistant_candidate_id: uuid.UUID
     history_leaf_turn_id: uuid.UUID | None
@@ -1677,8 +1675,6 @@ class TurnService:
             character=character,
             resolved_llm_route=resolved_llm_route,
             source_assistant_turn_id=source_turn.id,
-            system_turn_id=system_turn.id,
-            system_candidate_id=system_cand.id,
             assistant_turn_id=char_turn.id,
             assistant_candidate_id=char_cand.id,
             history_leaf_turn_id=history_leaf_turn_id,
@@ -2777,12 +2773,7 @@ class TurnService:
             )
 
             # Diagnostic: log whether the final user message includes images.
-            last_msg = messages[-1]
-            last_content = last_msg.get("content")
-            has_image_parts = (
-                isinstance(last_content, list)
-                and any(isinstance(p, dict) and p.get("type") == "image_url" for p in last_content)
-            )
+            has_image_parts = _message_has_image_parts(messages[-1])
             logger.info(
                 "Edit stream messages assembled.",
                 extra={
