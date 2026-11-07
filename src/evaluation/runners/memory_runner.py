@@ -59,10 +59,6 @@ class MemoryReplayRunner(ChatReplayRunner):
         if case.task_type == "memory_abstention" and context.judge is not None:
             await self._judge_abstention(case, context, generated_text, outcome)
 
-        if case.task_type == "memory_ooc" and context.judge is not None:
-            # Base chat replay already ran classify_ooc into rule_metrics["ooc"].
-            pass
-
         await self._record_memory_usage(case, context, generated_text, outcome)
         return outcome
 

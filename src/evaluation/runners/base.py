@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any
 from uuid import UUID
 
 from src.evaluation.constants import ContentMode, ResponseStatus, ResultStatus, RunnerName
@@ -83,16 +82,7 @@ class CaseOutcome:
         self.duration_ms = int((self.finished_at - self.started_at).total_seconds() * 1000)
 
 
-class CaseRunner(Protocol):
-    runner_name: RunnerName
-
-    async def run_case(self, case: Any, context: CaseExecutionContext) -> CaseOutcome: ...
-
-
 def make_safe_error_detail(template: str, **enum_params: str | int) -> str:
     """Fixed-template safe error detail: enum params only, never raw text."""
     rendered = template.format(**enum_params)
     return rendered[:1000]
-
-
-RunnerTask = Callable[[], Awaitable[CaseOutcome]]

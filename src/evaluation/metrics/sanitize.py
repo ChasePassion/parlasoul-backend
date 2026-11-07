@@ -115,10 +115,6 @@ _ENUM_STRINGS: frozenset[str] = frozenset(
 )
 
 
-def _is_enum_string(value: str) -> bool:
-    return value in _ENUM_STRINGS
-
-
 def sanitize_value(value: Any, *, content_mode: str, _depth: int = 0, _path: str = "$") -> Any:
     """Return a persistable copy of ``value`` or raise SanitizerViolationError.
 
