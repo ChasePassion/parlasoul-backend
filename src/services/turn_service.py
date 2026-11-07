@@ -2412,7 +2412,10 @@ class TurnService:
 
             cand_extra: dict[str, Any] = {"source": "user_edit"}
             if normalized_images:
-                cand_extra["chat_images"] = [{"image_key": img.image_key} for img in normalized_images]
+                cand_extra["chat_images"] = [
+                    {"image_key": img.image_key, "data_url": img.data_url}
+                    for img in normalized_images
+                ]
             user_cand = Candidate(
                 turn_id=user_turn.id,
                 candidate_no=new_user_no,
