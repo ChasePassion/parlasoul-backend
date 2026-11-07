@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 
 from src.core.exceptions import APIError
 from src.core.uow import UnitOfWork
-from src.db.models import Character, Chat, GrowthShareTrigger, User
+from src.db.models import Character, Chat, GrowthCharacterStats, GrowthShareTrigger, User
 from src.repositories.candidate_repository import CandidateRepository
 from src.repositories.character_repository import CharacterRepository
 from src.repositories.chat_repository import ChatRepository
@@ -224,6 +224,43 @@ class GrowthService:
         if not created:
             return None
         return self._build_share_card_from_trigger(trigger)
+
+    async def _append_milestone_cards(
+        self,
+        *,
+        user_id: uuid.UUID,
+        chat_id: uuid.UUID,
+        character_id: uuid.UUID,
+        character: Character,
+        character_stats: GrowthCharacterStats,
+        previous_total_message_count: int,
+    ) -> list[GrowthShareCard]:
+        share_cards: list[GrowthShareCard] = []
+        for milestone in crossed_milestones(previous_total_message_count, int(character_stats.total_message_count)):
+            payload_model = CharacterMilestoneShareCardPayload(
+                character_id=str(character.id),
+                character_name=character.name,
+                **_avatar_payload(character),
+                milestone_message_count=milestone,
+                total_word_count=int(character_stats.total_word_count),
+                chatted_days_count=int(character_stats.chatted_days_count),
+                total_exchange_count=int(character_stats.total_exchange_count),
+                reading_equivalent=self._to_reading_equivalent(int(character_stats.total_word_count)),
+            )
+            share_card = await self._append_trigger_if_absent(
+                user_id=user_id,
+                chat_id=chat_id,
+                character_id=character_id,
+                trigger_kind="character_message_milestone",
+                trigger_key=f"character_message_milestone:{user_id}:{character_id}:{milestone}",
+                payload={
+                    "kind": "character_message_milestone",
+                    "character_milestone_payload": payload_model.model_dump(mode="json"),
+                },
+            )
+            if share_card is not None:
+                share_cards.append(share_card)
+        return share_cards
 
     async def consume_entry(self, *, current_user: User, calendar_month: str | None) -> GrowthEntryResponse:
         today = today_in_beijing()
@@ -641,32 +678,14 @@ class GrowthService:
         if character is None:
             return []
 
-        share_cards: list[GrowthShareCard] = []
-        for milestone in crossed_milestones(previous_total_message_count, int(character_stats.total_message_count)):
-            payload_model = CharacterMilestoneShareCardPayload(
-                character_id=str(character.id),
-                character_name=character.name,
-                **_avatar_payload(character),
-                milestone_message_count=milestone,
-                total_word_count=int(character_stats.total_word_count),
-                chatted_days_count=int(character_stats.chatted_days_count),
-                total_exchange_count=int(character_stats.total_exchange_count),
-                reading_equivalent=self._to_reading_equivalent(int(character_stats.total_word_count)),
-            )
-            share_card = await self._append_trigger_if_absent(
-                user_id=user_id,
-                chat_id=chat_id,
-                character_id=character_id,
-                trigger_kind="character_message_milestone",
-                trigger_key=f"character_message_milestone:{user_id}:{character_id}:{milestone}",
-                payload={
-                    "kind": "character_message_milestone",
-                    "character_milestone_payload": payload_model.model_dump(mode="json"),
-                },
-            )
-            if share_card is not None:
-                share_cards.append(share_card)
-        return share_cards
+        return await self._append_milestone_cards(
+            user_id=user_id,
+            chat_id=chat_id,
+            character_id=character_id,
+            character=character,
+            character_stats=character_stats,
+            previous_total_message_count=previous_total_message_count,
+        )
 
     async def record_canonical_chat_completed(
         self,
@@ -749,30 +768,16 @@ class GrowthService:
                 share_cards.append(share_card)
 
         if character is not None:
-            for milestone in crossed_milestones(previous_total_message_count, int(character_stats.total_message_count)):
-                milestone_payload = CharacterMilestoneShareCardPayload(
-                    character_id=str(character.id),
-                    character_name=character.name,
-                    **_avatar_payload(character),
-                    milestone_message_count=milestone,
-                    total_word_count=int(character_stats.total_word_count),
-                    chatted_days_count=int(character_stats.chatted_days_count),
-                    total_exchange_count=int(character_stats.total_exchange_count),
-                    reading_equivalent=self._to_reading_equivalent(int(character_stats.total_word_count)),
-                )
-                share_card = await self._append_trigger_if_absent(
+            share_cards.extend(
+                await self._append_milestone_cards(
                     user_id=user_id,
                     chat_id=chat_id,
                     character_id=character_id,
-                    trigger_kind="character_message_milestone",
-                    trigger_key=f"character_message_milestone:{user_id}:{character_id}:{milestone}",
-                    payload={
-                        "kind": "character_message_milestone",
-                        "character_milestone_payload": milestone_payload.model_dump(mode="json"),
-                    },
+                    character=character,
+                    character_stats=character_stats,
+                    previous_total_message_count=previous_total_message_count,
                 )
-                if share_card is not None:
-                    share_cards.append(share_card)
+            )
 
         return GrowthStreamUpdate(
             today=self._to_today_summary(today=stat_date, daily_stats=daily_stats, user_stats=user_stats),

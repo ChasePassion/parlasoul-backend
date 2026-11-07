@@ -243,6 +243,27 @@ class TTSGatewayService:
             )
         return provider, provider_model, provider_voice_id
 
+    def _resolve_route_and_profile(
+        self,
+        *,
+        provider: str,
+        provider_model: str | None,
+        voice_source_type: str,
+        audio_format: str,
+    ) -> tuple[ResolvedTTSRoute, TTSAudioProfile]:
+        route = self._registry.resolve_explicit_route(
+            provider=provider,
+            model=provider_model,
+            source_type=voice_source_type,
+        )
+        audio_profile = self._registry.resolve_audio_profile(
+            provider=route.provider,
+            model=route.model,
+            audio_format=audio_format,
+            stream_required=True,
+        )
+        return route, audio_profile
+
     async def stream_tts_audio_base64(
         self,
         *,
@@ -261,16 +282,11 @@ class TTSGatewayService:
             provider_voice_id=provider_voice_id,
             voice_source_type=voice_source_type,
         )
-        route = self._registry.resolve_explicit_route(
+        route, audio_profile = self._resolve_route_and_profile(
             provider=provider,
-            model=provider_model,
-            source_type=voice_source_type,
-        )
-        audio_profile = self._registry.resolve_audio_profile(
-            provider=route.provider,
-            model=route.model,
+            provider_model=provider_model,
+            voice_source_type=voice_source_type,
             audio_format=audio_format,
-            stream_required=True,
         )
         if route.provider == "dashscope":
             async for chunk in self._dashscope_gateway.stream_tts_audio_base64(
@@ -320,16 +336,11 @@ class TTSGatewayService:
             provider_voice_id=provider_voice_id,
             voice_source_type=voice_source_type,
         )
-        route = self._registry.resolve_explicit_route(
+        route, audio_profile = self._resolve_route_and_profile(
             provider=provider,
-            model=provider_model,
-            source_type=voice_source_type,
-        )
-        audio_profile = self._registry.resolve_audio_profile(
-            provider=route.provider,
-            model=route.model,
+            provider_model=provider_model,
+            voice_source_type=voice_source_type,
             audio_format=audio_format,
-            stream_required=True,
         )
         if route.provider == "dashscope":
             async for chunk in self._dashscope_gateway.stream_tts_audio_base64_from_segments(
@@ -388,16 +399,11 @@ class TTSGatewayService:
         )
 
         try:
-            route = self._registry.resolve_explicit_route(
+            route, audio_profile = self._resolve_route_and_profile(
                 provider=provider,
-                model=provider_model,
-                source_type=voice_source_type,
-            )
-            audio_profile = self._registry.resolve_audio_profile(
-                provider=route.provider,
-                model=route.model,
+                provider_model=provider_model,
+                voice_source_type=voice_source_type,
                 audio_format=audio_format,
-                stream_required=True,
             )
             if route.provider != "minimax":
                 return False

@@ -181,6 +181,17 @@ def _safe_parse_json(response: str, default: dict[str, Any]) -> dict[str, Any]:
         return default
 
 
+def _json_call_result(response_result: LLMTextResult, parsed_data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "parsed_data": parsed_data,
+        "raw_response": response_result.text,
+        "model": response_result.model,
+        "success": True,
+        "usage_details": response_result.usage_details,
+        "cost_details": response_result.cost_details,
+    }
+
+
 def _usage_details_from_json_result(result: dict[str, Any]) -> dict[str, Any] | None:
     usage_details = result.get("usage_details")
     return usage_details if isinstance(usage_details, dict) and usage_details else None
@@ -315,14 +326,7 @@ class _PydanticAIRuntimeClient:
             default = {}
         response_result = await self.chat_with_usage_async(system_prompt, user_message)
         parsed_data = _safe_parse_json(response_result.text, default)
-        return {
-            "parsed_data": parsed_data,
-            "raw_response": response_result.text,
-            "model": response_result.model,
-            "success": True,
-            "usage_details": response_result.usage_details,
-            "cost_details": response_result.cost_details,
-        }
+        return _json_call_result(response_result, parsed_data)
 
     def chat_json(
         self, system_prompt: str, user_message: str, default: dict[str, Any] | None = None
@@ -331,14 +335,7 @@ class _PydanticAIRuntimeClient:
             default = {}
         response_result = _run_coroutine_sync(self.chat_with_usage_async(system_prompt, user_message))
         parsed_data = _safe_parse_json(response_result.text, default)
-        return {
-            "parsed_data": parsed_data,
-            "raw_response": response_result.text,
-            "model": response_result.model,
-            "success": True,
-            "usage_details": response_result.usage_details,
-            "cost_details": response_result.cost_details,
-        }
+        return _json_call_result(response_result, parsed_data)
 
     async def chat_stream_messages_async(
         self, messages: list[dict[str, Any]]
@@ -546,14 +543,7 @@ class _AnthropicRuntimeClient:
             )
             response_result = self._to_text_result(response)
             parsed_data = _safe_parse_json(response_result.text, default)
-            return {
-                "parsed_data": parsed_data,
-                "raw_response": response_result.text,
-                "model": response_result.model,
-                "success": True,
-                "usage_details": response_result.usage_details,
-                "cost_details": response_result.cost_details,
-            }
+            return _json_call_result(response_result, parsed_data)
         except Exception as exc:
             raise self._normalize_error(exc, self._route) from exc
 
@@ -594,14 +584,7 @@ class _AnthropicRuntimeClient:
             )
             response_result = self._to_text_result(response)
             parsed_data = _safe_parse_json(response_result.text, default)
-            return {
-                "parsed_data": parsed_data,
-                "raw_response": response_result.text,
-                "model": response_result.model,
-                "success": True,
-                "usage_details": response_result.usage_details,
-                "cost_details": response_result.cost_details,
-            }
+            return _json_call_result(response_result, parsed_data)
         except Exception as exc:
             raise self._normalize_error(exc, self._route) from exc
 
