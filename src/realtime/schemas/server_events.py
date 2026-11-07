@@ -8,42 +8,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class SessionCreatedEvent(BaseModel):
-    type: str = "session.created"
-    session_id: str
-    chat_id: str
-    character_id: str
-
-
-class ConversationTurnCreatedEvent(BaseModel):
-    type: str = "conversation.turn.created"
-    chat_id: str
-    user_turn_id: str
-    user_candidate_id: str
-    assistant_turn_id: str
-    assistant_candidate_id: str
-    generation_id: int | None = None
-
-
-class ConversationTurnUpdatedEvent(BaseModel):
-    type: str = "conversation.turn.updated"
-    chat_id: str
-    assistant_turn_id: str
-    assistant_candidate_id: str
-    is_final: bool
-    generation_id: int | None = None
-
-
-class ConversationTurnFailedEvent(BaseModel):
-    type: str = "conversation.turn.failed"
-    chat_id: str
-    assistant_turn_id: str
-    assistant_candidate_id: str
-    code: str
-    message: str
-    generation_id: int | None = None
-
-
 class RealtimeSessionCreateRequest(BaseModel):
     chat_id: str
     character_id: str

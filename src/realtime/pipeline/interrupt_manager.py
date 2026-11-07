@@ -191,26 +191,6 @@ class InterruptManager:
         logger.info("Realtime response interrupted: reason=%s", reason)
         return True
 
-    def mark_thinking(self) -> None:
-        self._state = RealtimeSessionState.THINKING
-
-    def mark_idle(self) -> None:
-        self._state = RealtimeSessionState.LISTENING
-
-    def mark_response_resumed(self) -> None:
-        self._state = RealtimeSessionState.AGENT_SPEAKING
-
-    async def mark_response_started(self) -> None:
-        await self._transition_state(
-            RealtimeSessionState.AGENT_SPEAKING,
-            "response_started",
-        )
-        await self._bus.publish(RealtimeEvent("response_started", {}))
-
-    async def mark_response_done(self) -> None:
-        await self._transition_state(RealtimeSessionState.LISTENING, "response_done")
-        await self._bus.publish(RealtimeEvent("response_done", {}))
-
     async def _transition_state(self, state: RealtimeSessionState, reason: str) -> None:
         if self._state_transition is not None:
             await self._state_transition(state, reason)

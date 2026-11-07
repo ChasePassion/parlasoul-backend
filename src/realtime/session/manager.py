@@ -322,9 +322,6 @@ class RealtimeSessionManager:
                 telemetry_error_code="session_start_failed",
             )
 
-    def build_client_ice_servers(self, *, user_id: uuid.UUID) -> list[dict[str, object]]:
-        return self._ice_config_service.build_client_ice_servers(user_id=user_id)
-
     async def close_session(
         self,
         session_id: str,
@@ -366,7 +363,7 @@ class RealtimeSessionManager:
             if not isinstance(decoded, dict):
                 raise ValueError("realtime client event must be an object")
             await session.handle_client_event(decoded)
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError):
+        except (ValueError, TypeError):
             logger.warning(
                 "Realtime client event rejected: session_id=%s",
                 session.session_id,

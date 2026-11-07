@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 
@@ -102,7 +103,7 @@ class RealtimePeer:
             if self._closed:
                 return
             if self.data_channel and self.data_channel.readyState == "open":
-                self.data_channel.send(__import__("json").dumps(payload))
+                self.data_channel.send(json.dumps(payload))
                 return
             await asyncio.sleep(0.02)
 
