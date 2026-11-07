@@ -5,7 +5,6 @@ add, search, update, delete, reset, and consolidate.
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import time
@@ -41,14 +40,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-
-def _run_coroutine_sync(coro: Any) -> Any:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    raise RuntimeError("Synchronous memory calls must not run inside an active event loop")
 
 
 @dataclass
@@ -265,39 +256,6 @@ class Memory:
         if observation is not None and hasattr(observation, "end"):
             observation.end()
         return vectors
-    @observe(name="memory.manage")
-    def manage(
-        self,
-        user_text: str,
-        assistant_text: str,
-        user_id: str,
-        character_id: str,
-        chat_id: str,
-        metadata: dict[str, Any] | None = None
-    ) -> list[int]:
-        """Manage memories with CRUD operations based on conversation.
-
-        
-        Synchronous wrapper around manage_async(). Use this in non-async contexts
-        like CLI scripts or thread pools.
-        
-        Note: In async environments (Gradio, FastAPI, Notebooks), use manage_async()
-        directly instead of this method.
-        
-        Args:
-            user_text: User input text
-            assistant_text: Assistant response text
-            user_id: User identifier
-            chat_id: Conversation/thread identifier
-            metadata: Optional additional metadata (ignored in v2 schema)
-            
-        Returns:
-            List of newly added memory IDs
-        """
-        return _run_coroutine_sync(
-            self.manage_async(user_text, assistant_text, user_id, character_id, chat_id, metadata)
-        )
-
 
     @observe(name="memory.manage_async")
     async def manage_async(
@@ -1154,10 +1112,6 @@ class Memory:
         )
 
         return count
-
-    @observe(name="memory.consolidate.batch")
-    def consolidate(self, user_id: str, character_id: str) -> ConsolidationStats:
-        return _run_coroutine_sync(self.consolidate_async(user_id, character_id))
 
     @observe(name="memory.consolidate.batch.async")
     async def consolidate_async(self, user_id: str, character_id: str) -> ConsolidationStats:

@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import AsyncGenerator, Callable, Generator
-from typing import Any, TypeVar
+from collections.abc import AsyncGenerator, Callable
+from typing import TypeVar
 
 from src.observability import LLMRetryEvent, LLMRetryObserver
 
@@ -76,37 +76,6 @@ class RetryExecutor:
         for attempt in range(self.max_retries):
             try:
                 return operation_fn()
-            except Exception as exc:
-                if not self._should_retry(exc):
-                    raise
-                self._last_error = exc
-                self._log_retry(attempt, exc)
-                if attempt < self.max_retries - 1:
-                    delay_s = self._calculate_delay(attempt)
-                    self._notify_retry(attempt, exc, delay_s)
-                    time.sleep(delay_s)
-        self._raise_final_error()
-
-    async def execute_async(self, operation_fn: Callable[[], Any]) -> Any:
-        for attempt in range(self.max_retries):
-            try:
-                return await operation_fn()
-            except Exception as exc:
-                if not self._should_retry(exc):
-                    raise
-                self._last_error = exc
-                self._log_retry(attempt, exc, is_async=True)
-                if attempt < self.max_retries - 1:
-                    delay_s = self._calculate_delay(attempt)
-                    self._notify_retry(attempt, exc, delay_s)
-                    await asyncio.sleep(delay_s)
-        self._raise_final_error()
-
-    def stream(self, stream_fn: Callable[[], Generator[T, None, None]]) -> Generator[T, None, None]:
-        for attempt in range(self.max_retries):
-            try:
-                yield from stream_fn()
-                return
             except Exception as exc:
                 if not self._should_retry(exc):
                     raise

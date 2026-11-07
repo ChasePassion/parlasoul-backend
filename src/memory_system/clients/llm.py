@@ -53,24 +53,17 @@ class LLMClient:
             return normalized_model
 
         normalized_base = (base_url or "").strip().lower()
-        if (
-            normalized_base
-            and normalized_model.startswith("deepseek/")
-            and "deepseek.com" in normalized_base
+        for prefix, host in (
+            ("deepseek/", "deepseek.com"),
+            ("openrouter/", "openrouter.ai"),
+            ("dashscope/", "dashscope.aliyuncs.com"),
         ):
-            return normalized_model.split("/", 1)[1]
-        if (
-            normalized_base
-            and normalized_model.startswith("openrouter/")
-            and "openrouter.ai" in normalized_base
-        ):
-            return normalized_model.split("/", 1)[1]
-        if (
-            normalized_base
-            and normalized_model.startswith("dashscope/")
-            and "dashscope.aliyuncs.com" in normalized_base
-        ):
-            return normalized_model.split("/", 1)[1]
+            if (
+                normalized_base
+                and normalized_model.startswith(prefix)
+                and host in normalized_base
+            ):
+                return normalized_model.split("/", 1)[1]
         return normalized_model
 
     @staticmethod
@@ -503,20 +496,6 @@ class LLMClient:
             json_mode=json_mode,
         )
 
-    def chat_stream(
-        self,
-        system_prompt: str,
-        user_message: str,
-        *,
-        retry_observer: LLMRetryObserver | None = None,
-    ):
-        """Call LLM for streaming text response."""
-        yield from self._chat_stream_with_retries(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            retry_observer=retry_observer,
-        )
-
     def pop_last_stream_usage_details(self) -> dict[str, Any] | None:
         usage_details = getattr(self, "_last_stream_usage_details", None)
         self._last_stream_usage_details = None
@@ -526,21 +505,6 @@ class LLMClient:
         cost_details = getattr(self, "_last_stream_cost_details", None)
         self._last_stream_cost_details = None
         return cost_details
-
-    async def chat_stream_async(
-        self,
-        system_prompt: str,
-        user_message: str,
-        *,
-        retry_observer: LLMRetryObserver | None = None,
-    ):
-        """Async streaming chat with the OpenAI-compatible SDK."""
-        async for chunk in self._chat_stream_async_with_retries(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            retry_observer=retry_observer,
-        ):
-            yield chunk
 
     async def chat_stream_messages_async(
         self,
@@ -703,21 +667,6 @@ class LLMClient:
         async for item in executor.stream_async(do_stream):
             yield item
 
-    async def _chat_stream_async_with_retries(
-        self,
-        system_prompt: str,
-        user_message: str,
-        *,
-        retry_observer: LLMRetryObserver | None = None,
-    ):
-        """Async streaming with retry logic using RetryExecutor."""
-        messages = self._build_messages(system_prompt, user_message)
-        async for item in self._chat_stream_async_messages_with_retries(
-            messages=messages,
-            retry_observer=retry_observer,
-        ):
-            yield item
-
     def chat_json(
         self,
         system_prompt: str,
@@ -867,63 +816,3 @@ class LLMClient:
             return result if include_usage else result.text
 
         return executor.execute(do_chat)
-
-    def _chat_stream_with_retries(
-        self,
-        system_prompt: str,
-        user_message: str,
-        *,
-        retry_observer: LLMRetryObserver | None = None,
-    ):
-        """Call the streaming chat API with retries using RetryExecutor."""
-        executor = RetryExecutor(
-            max_retries=self._max_retries,
-            base_delay=self._base_delay,
-            model=self._model_label,
-            operation="stream",
-            retryable_exceptions=_RETRYABLE_OPENAI_EXCEPTIONS,
-            retry_observer=retry_observer,
-        )
-        messages = self._build_messages(system_prompt, user_message)
-
-        def do_stream():
-            last_error: Exception | None = None
-            last_route: _ModelRoute | None = None
-            message_count, total_chars = self._message_count_and_chars(messages)
-            for route in self._routes:
-                yielded_any = False
-                try:
-                    response = route.sync_client.chat.completions.create(
-                        **self._chat_completion_request_kwargs(route, messages, stream=True)
-                    )
-                    for chunk in response:
-                        usage_details = self._extract_usage_details(chunk)
-                        if usage_details:
-                            self._last_stream_usage_details = usage_details
-                            self._last_stream_cost_details = self._extract_cost_details(chunk)
-                            continue
-                        content = self._extract_chunk_content(chunk)
-                        if content:
-                            yielded_any = True
-                            yield content
-                    return
-                except Exception as e:
-                    if yielded_any:
-                        raise
-                    last_error = e
-                    logger.debug(
-                        "SDK sync stream init failed; model=%s; message_count=%s; total_chars=%s; message_lengths=%s; error=%s",
-                        route.model,
-                        message_count,
-                        total_chars,
-                        self._message_length_summary(messages),
-                        e,
-                    )
-                    last_route = route
-            if last_error is not None:
-                if last_route is not None:
-                    raise self._normalize_terminal_error(last_error, last_route)
-                raise last_error
-            raise RuntimeError("No LLM route configured")
-
-        yield from executor.stream(do_stream)
