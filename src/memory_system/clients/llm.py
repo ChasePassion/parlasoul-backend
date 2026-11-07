@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
 
 import openai
 from openai import AsyncOpenAI, OpenAI
@@ -405,6 +405,13 @@ class LLMClient:
             cost_details=cls._extract_cost_details(response),
         )
 
+    def _raise_fallback_error(self, last_error: Exception | None, last_route: _ModelRoute | None) -> NoReturn:
+        if last_error is not None:
+            if last_route is not None:
+                raise self._normalize_terminal_error(last_error, last_route)
+            raise last_error
+        raise RuntimeError("No LLM route configured")
+
     def _completion_sync_with_fallback(
         self, messages: list[dict[str, Any]], *, stream: bool, json_mode: bool = False
     ) -> tuple[Any, str]:
@@ -429,11 +436,7 @@ class LLMClient:
                     e,
                 )
                 last_route = route
-        if last_error is not None:
-            if last_route is not None:
-                raise self._normalize_terminal_error(last_error, last_route)
-            raise last_error
-        raise RuntimeError("No LLM route configured")
+        self._raise_fallback_error(last_error, last_route)
 
     async def _completion_async_with_fallback(
         self, messages: list[dict[str, Any]], *, stream: bool, json_mode: bool = False
@@ -459,11 +462,7 @@ class LLMClient:
                     e,
                 )
                 last_route = route
-        if last_error is not None:
-            if last_route is not None:
-                raise self._normalize_terminal_error(last_error, last_route)
-            raise last_error
-        raise RuntimeError("No LLM route configured")
+        self._raise_fallback_error(last_error, last_route)
 
     def chat(
         self,
@@ -603,11 +602,7 @@ class LLMClient:
                     raise
                 last_error = exc
                 last_route = route
-        if last_error is not None:
-            if last_route is not None:
-                raise self._normalize_terminal_error(last_error, last_route)
-            raise last_error
-        raise RuntimeError("No LLM route configured")
+        self._raise_fallback_error(last_error, last_route)
 
     async def _chat_stream_async_messages_with_retries(        self,
         messages: list[dict[str, Any]],
@@ -658,11 +653,7 @@ class LLMClient:
                         e,
                     )
                     last_route = route
-            if last_error is not None:
-                if last_route is not None:
-                    raise self._normalize_terminal_error(last_error, last_route)
-                raise last_error
-            raise RuntimeError("No LLM route configured")
+            self._raise_fallback_error(last_error, last_route)
 
         async for item in executor.stream_async(do_stream):
             yield item

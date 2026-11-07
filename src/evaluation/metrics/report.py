@@ -31,6 +31,24 @@ def _atomic_write_text(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+def _fmt_pct(value: object) -> str:
+    if value is None or not isinstance(value, (int, float)):
+        return "—"
+    return f"{value:.2%}"
+
+
+def _fmt_float(value: object, spec: str) -> str:
+    if value is None or not isinstance(value, (int, float)):
+        return "—"
+    return f"{value:{spec}}"
+
+
+def _fmt_signed(value: object) -> str:
+    if value is None or not isinstance(value, (int, float)):
+        return "—"
+    return f"{value:+.2f}"
+
+
 def outcome_to_report_dict(outcome: CaseOutcome, *, content_mode: str) -> dict[str, Any]:
     report: dict[str, Any] = {
         "case_id": outcome.case_id,
@@ -178,12 +196,7 @@ class ReportWriter:
                 n = v.get("sample_count", 0)
                 mean = v.get("mean")
                 dist = v.get("distribution") or {}
-                if mean is None:
-                    mean_str = "—"
-                elif isinstance(mean, (int, float)):
-                    mean_str = f"{mean:.2f}"
-                else:
-                    mean_str = "—"
+                mean_str = _fmt_float(mean, ".2f")
                 dist_str = (
                     " · ".join(f"**{k}**: {dist[k]}" for k in sorted(dist)) if dist else "—"
                 )
@@ -204,16 +217,10 @@ class ReportWriter:
                 status = v.get("status", "?")
                 n = v.get("sample_count", 0)
                 value: object | str = "—"
-
-                def _fmt_pct_raw(n: object) -> str:
-                    if n is None or not isinstance(n, (int, float)):
-                        return "—"
-                    return f"{n:.2%}"
-
                 if "mean_rate" in v:
-                    value = _fmt_pct_raw(v["mean_rate"])
+                    value = _fmt_pct(v["mean_rate"])
                 elif "accuracy" in v:
-                    value = _fmt_pct_raw(v["accuracy"])
+                    value = _fmt_pct(v["accuracy"])
                 elif "correct" in v and v.get("accuracy") is not None:
                     value = f"{v['correct']}/{v.get('gold_count', '?')}"
                 note = v.get("reason", "")
@@ -233,12 +240,7 @@ class ReportWriter:
                 gold = ooc.get("gold_count", 0)
                 predicted = ooc.get("predicted_count", 0)
                 accuracy = ooc.get("accuracy")
-                if accuracy is None:
-                    acc_str = "—"
-                elif isinstance(accuracy, (int, float)):
-                    acc_str = f"{accuracy:.2%}"
-                else:
-                    acc_str = "—"
+                acc_str = _fmt_pct(accuracy)
                 parts.append(
                     f"correct: **{correct}/{gold}** · predicted_count: {predicted} · "
                     f"accuracy: **{acc_str}**"
@@ -259,14 +261,6 @@ class ReportWriter:
                 ra = pw.get("win_rate_a")
                 rb = pw.get("win_rate_b")
                 rt = pw.get("tie_rate")
-
-                def _fmt_pct(v: object) -> str:
-                    if v is None:
-                        return "—"
-                    if isinstance(v, (int, float)):
-                        return f"{v:.2%}"
-                    return "—"
-
                 ra_str = _fmt_pct(ra)
                 rb_str = _fmt_pct(rb)
                 rt_str = _fmt_pct(rt)
@@ -283,12 +277,7 @@ class ReportWriter:
             parts.append("### Repetition 3-gram")
             parts.append("")
             rate = rep.get("mean_rate")
-            if rate is None:
-                rate_str = "—"
-            elif isinstance(rate, (int, float)):
-                rate_str = f"{rate:.4f}"
-            else:
-                rate_str = "—"
+            rate_str = _fmt_float(rate, ".4f")
             parts.append(
                 f"Status: **{rep.get('status', '?')}** · "
                 f"n: {rep.get('sample_count', 0)} · mean_rate: **{rate_str}** · "
@@ -309,17 +298,6 @@ class ReportWriter:
                 v = mut["dimensions"][dim_name]
                 mean_d = v.get("mean_delta")
                 pos = v.get("positive_rate")
-
-                def _fmt_signed(v: object) -> str:
-                    if v is None or not isinstance(v, (int, float)):
-                        return "—"
-                    return f"{v:+.2f}"
-
-                def _fmt_pct(v: object) -> str:
-                    if v is None or not isinstance(v, (int, float)):
-                        return "—"
-                    return f"{v:.2%}"
-
                 mean_str = _fmt_signed(mean_d)
                 pos_str = _fmt_pct(pos)
                 parts.append(
