@@ -296,10 +296,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("EMBEDDING_MODEL", "SILICONFLOW_EMBEDDING_MODEL"),
     )
     MEMORY_EMBEDDING_DIM: int = 2048
-    LLM_OPENROUTER_MODELS_CACHE_SECONDS: int = Field(
-        default=600,
-        validation_alias=AliasChoices("LLM_OPENROUTER_MODELS_CACHE_SECONDS"),
-    )
     LLM_TIMEOUT_SECONDS: float = Field(
         default=60.0,
         validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS"),
@@ -378,22 +374,6 @@ class Settings(BaseSettings):
     # Spoken language of every character voice. The product ships English audio,
     # so the value is sent explicitly instead of relying on the provider default (Auto).
     DASHSCOPE_TTS_LANGUAGE_TYPE: str = "English"
-    MINIMAX_TTS_API_KEY: str | None = None
-    MINIMAX_TTS_WEBSOCKET_API_URL: str = "wss://api.minimaxi.com/ws/v1/t2a_v2"
-    MINIMAX_TTS_MODEL_ID: str = "speech-2.8-turbo"
-    MINIMAX_TTS_SAMPLE_RATE: int = 24000
-    MINIMAX_TTS_BITRATE: int = 128000
-    MINIMAX_TTS_CHANNEL: int = 1
-    MINIMAX_TTS_DEFAULT_SPEED: float = 1.0
-    MINIMAX_TTS_DEFAULT_VOLUME: float = 1.0
-    MINIMAX_TTS_DEFAULT_PITCH: int = 0
-    MINIMAX_TTS_EVENT_TIMEOUT_SECONDS: float = 30.0
-    MINIMAX_TTS_OPEN_TIMEOUT_SECONDS: float = 15.0
-    MINIMAX_TTS_WARM_CONNECTION_ENABLED: bool = True
-    MINIMAX_TTS_WARM_CONNECTION_TTL_SECONDS: float = 105.0
-    MINIMAX_TTS_WARM_CONNECTION_WAIT_SECONDS: float = 3.0
-    MINIMAX_TTS_WARM_CONNECTION_KEEPALIVE_SECONDS: float = 900.0
-    MINIMAX_TTS_WARM_CONNECTION_REFRESH_MARGIN_SECONDS: float = 20.0
 
     # Character forge (conversational character creation)
     EXA_API_KEY: str | None = None

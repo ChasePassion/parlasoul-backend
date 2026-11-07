@@ -37,11 +37,3 @@ class UnitOfWork:
     async def rollback(self) -> None:
         await self._db.rollback()
 
-
-@asynccontextmanager
-async def transactional(db: AsyncSession) -> AsyncIterator[None]:
-    """Backward-compatible helper for legacy callsites."""
-    uow = UnitOfWork(db)
-    async with uow.transactional():
-        yield
-

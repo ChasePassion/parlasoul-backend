@@ -879,7 +879,7 @@ class VoiceGatewayRepository:
                 "transport": "http",
             },
         )
-        error_metadata = {
+        base_metadata = {
             "provider": _DASHSCOPE_PROVIDER,
             "billing_region": self._billing_region,
             "billing_unit": _LANGFUSE_UNIT_TOKENS,
@@ -907,7 +907,7 @@ class VoiceGatewayRepository:
                 observation,
                 level="ERROR",
                 status_message="Voice STT HTTP request timed out",
-                metadata={**error_metadata, "error_type": "TimeoutException"},
+                metadata={**base_metadata, "error_type": "TimeoutException"},
             )
             raise APIError(
                 status_code=504,
@@ -919,7 +919,7 @@ class VoiceGatewayRepository:
                 observation,
                 level="ERROR",
                 status_message="Voice STT HTTP request failed",
-                metadata={**error_metadata, "error_type": type(exc).__name__},
+                metadata={**base_metadata, "error_type": type(exc).__name__},
             )
             raise APIError(
                 status_code=502,
@@ -932,7 +932,7 @@ class VoiceGatewayRepository:
                 observation,
                 level="ERROR",
                 status_message="Voice STT HTTP request rejected",
-                metadata={**error_metadata, "upstream_status": response.status_code},
+                metadata={**base_metadata, "upstream_status": response.status_code},
             )
             raise APIError(
                 status_code=502,
@@ -953,7 +953,7 @@ class VoiceGatewayRepository:
                 observation,
                 level="ERROR",
                 status_message="Voice STT HTTP response unreadable",
-                metadata={**error_metadata, "error_type": "InvalidResponse"},
+                metadata={**base_metadata, "error_type": "InvalidResponse"},
             )
             raise APIError(
                 status_code=502,
@@ -964,7 +964,7 @@ class VoiceGatewayRepository:
             _end_voice_model_observation(
                 observation,
                 output={"text_chars": 0, "request_id": request_id},
-                metadata={**error_metadata, "request_id": request_id},
+                metadata={**base_metadata, "request_id": request_id},
             )
             raise APIError(
                 status_code=422,
@@ -985,7 +985,7 @@ class VoiceGatewayRepository:
             output={"text_chars": len(text), "request_id": request_id},
             usage_details=usage_details,
             metadata={
-                **error_metadata,
+                **base_metadata,
                 "transport": "http",
                 "request_id": request_id,
                 "audio_duration_seconds": usage.get("duration"),
@@ -1520,7 +1520,7 @@ class VoiceGatewayRepository:
                     return final_text, request_id
             except APIError:
                 raise
-            except (TimeoutError, Exception) as exc:
+            except Exception as exc:
                 is_transient = isinstance(exc, TimeoutError) or _is_transient_stt_websocket_error(exc)
                 if attempt < max_attempts and is_transient:
                     logger.warning(

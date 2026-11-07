@@ -17,10 +17,6 @@ class SavedItemRepository:
     def __init__(self, db: AsyncSession):
         self._db = db
 
-    @staticmethod
-    def _kind_match_values(kind: str) -> list[str]:
-        return [(kind or "").strip()]
-
     async def get_by_id_and_user(
         self,
         *,
@@ -41,10 +37,9 @@ class SavedItemRepository:
         kind: str,
         surface: str,
     ) -> SavedItem | None:
-        kind_values = self._kind_match_values(kind)
         stmt = select(SavedItem).where(
             SavedItem.user_id == user_id,
-            SavedItem.kind.in_(kind_values),
+            SavedItem.kind == (kind or "").strip(),
             SavedItem.display_surface == surface,
         )
         result = await self._db.execute(stmt)
@@ -57,12 +52,11 @@ class SavedItemRepository:
         kind: str,
         surface: str,
     ) -> SavedItem | None:
-        kind_values = self._kind_match_values(kind)
         stmt = (
             select(SavedItem)
             .where(
                 SavedItem.user_id == user_id,
-                SavedItem.kind.in_(kind_values),
+                SavedItem.kind == (kind or "").strip(),
                 SavedItem.display_surface == surface,
             )
             .order_by(SavedItem.created_at.desc(), SavedItem.id.desc())
@@ -104,7 +98,7 @@ class SavedItemRepository:
     ) -> tuple[list[SavedItem], str | None, bool]:
         stmt = select(SavedItem).where(SavedItem.user_id == user_id)
         if kind:
-            stmt = stmt.where(SavedItem.kind.in_(self._kind_match_values(kind)))
+            stmt = stmt.where(SavedItem.kind == (kind or "").strip())
         if role_id:
             stmt = stmt.where(SavedItem.source_role_id == role_id)
         if chat_id:

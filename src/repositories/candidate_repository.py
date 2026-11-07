@@ -29,7 +29,7 @@ class CandidateRepository:
         return result.scalars().first()
 
     async def get_by_ids(self, candidate_ids: Iterable[uuid.UUID]) -> list[Candidate]:
-        ids = [candidate_id for candidate_id in candidate_ids]
+        ids = list(candidate_ids)
         if not ids:
             return []
         stmt = select(Candidate).where(Candidate.id.in_(ids))
@@ -47,7 +47,7 @@ class CandidateRepository:
         return int(value or 0)
 
     async def count_by_turn_ids(self, turn_ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, int]:
-        ids = [turn_id for turn_id in turn_ids]
+        ids = list(turn_ids)
         if not ids:
             return {}
         stmt = (
@@ -74,10 +74,7 @@ class CandidateRepository:
                 Turn.author_type == AuthorType.CHARACTER.value,
             )
         )
-        row = (await self._db.execute(stmt)).first()
-        if not row:
-            return None
-        return row
+        return (await self._db.execute(stmt)).first()
 
     async def get_candidate_with_turn_and_chat(
         self,
@@ -90,10 +87,7 @@ class CandidateRepository:
             .join(Chat, Chat.id == Turn.chat_id)
             .where(Candidate.id == candidate_id)
         )
-        row = (await self._db.execute(stmt)).first()
-        if not row:
-            return None
-        return row
+        return (await self._db.execute(stmt)).first()
 
     def add(self, candidate: Candidate) -> None:
         self._db.add(candidate)
