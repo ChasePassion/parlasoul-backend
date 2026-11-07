@@ -891,6 +891,23 @@ class TurnService:
             manual=True,
         )
         workflow_observation = workflow_context.__enter__()
+
+        async def _stream_error_frame(code: str, message: str) -> str:
+            update_observation_safe(
+                workflow_observation,
+                level="ERROR",
+                status_message=message,
+                output={"status": "error", "code": code},
+            )
+            await self._rollback_after_stream_exception(reason=code)
+            await self._finalize_regen_error(
+                prep=prep,
+                code=code,
+                message=message,
+                partial_content=accumulated,
+            )
+            return _sse_event({"type": "error", "code": code, "message": message})
+
         try:
             workflow_trace_context = current_trace_context(workflow_observation)
             if workflow_trace_context is not None:
@@ -1327,78 +1344,20 @@ class TurnService:
                 "upstream timeout: llm stream did not produce the first chunk in time; "
                 f"model={e.model}; timeout_s={e.timeout_s:.1f}"
             )
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_stream_first_chunk_timeout"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_stream_first_chunk_timeout")
-            await self._finalize_regen_error(
-                prep=prep,
-                code="llm_stream_first_chunk_timeout",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event(
-                {
-                    "type": "error",
-                    "code": "llm_stream_first_chunk_timeout",
-                    "message": message,
-                }
-            )
+            yield await _stream_error_frame("llm_stream_first_chunk_timeout", message)
         except LLMAuthenticationError as e:
             message = e.public_message()
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_service_error"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_service_error")
-            await self._finalize_regen_error(
-                prep=prep,
-                code="llm_service_error",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event({"type": "error", "code": "llm_service_error", "message": message})
+            yield await _stream_error_frame("llm_service_error", message)
         except LLMCallError as e:
             message = (
                 "upstream error: llm request failed after retries; "
                 f"model={e.model}; attempts={e.attempts}"
             )
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_service_error"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_service_error")
-            await self._finalize_regen_error(
-                prep=prep,
-                code="llm_service_error",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event({"type": "error", "code": "llm_service_error", "message": message})
+            yield await _stream_error_frame("llm_service_error", message)
         except Exception as e:
             logger.exception("Regen stream error for user %s: %s", current_user.id, e)
             message = "regen stream failed: unexpected streaming error"
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "regen_stream_failed"},
-            )
-            await self._rollback_after_stream_exception(reason="regen_stream_failed")
-            await self._finalize_regen_error(
-                prep=prep,
-                code="regen_stream_failed",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event({"type": "error", "code": "regen_stream_failed", "message": message})
+            yield await _stream_error_frame("regen_stream_failed", message)
         finally:
             if post_done_tasks is not None:
                 await post_done_tasks.aclose()
@@ -1726,6 +1685,23 @@ class TurnService:
             manual=True,
         )
         workflow_observation = workflow_context.__enter__()
+
+        async def _stream_error_frame(code: str, message: str) -> str:
+            update_observation_safe(
+                workflow_observation,
+                level="ERROR",
+                status_message=message,
+                output={"status": "error", "code": code},
+            )
+            await self._rollback_after_stream_exception(reason=code)
+            await self._finalize_continue_error(
+                prep=prep,
+                code=code,
+                message=message,
+                partial_content=accumulated,
+            )
+            return _sse_event({"type": "error", "code": code, "message": message})
+
         try:
             workflow_trace_context = current_trace_context(workflow_observation)
             if workflow_trace_context is not None:
@@ -2113,78 +2089,20 @@ class TurnService:
                 "upstream timeout: llm stream did not produce the first chunk in time; "
                 f"model={e.model}; timeout_s={e.timeout_s:.1f}"
             )
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_stream_first_chunk_timeout"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_stream_first_chunk_timeout")
-            await self._finalize_continue_error(
-                prep=prep,
-                code="llm_stream_first_chunk_timeout",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event(
-                {
-                    "type": "error",
-                    "code": "llm_stream_first_chunk_timeout",
-                    "message": message,
-                }
-            )
+            yield await _stream_error_frame("llm_stream_first_chunk_timeout", message)
         except LLMAuthenticationError as e:
             message = e.public_message()
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_service_error"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_service_error")
-            await self._finalize_continue_error(
-                prep=prep,
-                code="llm_service_error",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event({"type": "error", "code": "llm_service_error", "message": message})
+            yield await _stream_error_frame("llm_service_error", message)
         except LLMCallError as e:
             message = (
                 "upstream error: llm request failed after retries; "
                 f"model={e.model}; attempts={e.attempts}"
             )
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_service_error"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_service_error")
-            await self._finalize_continue_error(
-                prep=prep,
-                code="llm_service_error",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event({"type": "error", "code": "llm_service_error", "message": message})
+            yield await _stream_error_frame("llm_service_error", message)
         except Exception as e:
             logger.exception("Continue stream error for user %s: %s", current_user.id, e)
             message = "continue stream failed: unexpected streaming error"
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "continue_stream_failed"},
-            )
-            await self._rollback_after_stream_exception(reason="continue_stream_failed")
-            await self._finalize_continue_error(
-                prep=prep,
-                code="continue_stream_failed",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event({"type": "error", "code": "continue_stream_failed", "message": message})
+            yield await _stream_error_frame("continue_stream_failed", message)
         finally:
             if post_done_tasks is not None:
                 await post_done_tasks.aclose()
@@ -2522,6 +2440,23 @@ class TurnService:
             manual=True,
         )
         workflow_observation = workflow_context.__enter__()
+
+        async def _stream_error_frame(code: str, message: str) -> str:
+            update_observation_safe(
+                workflow_observation,
+                level="ERROR",
+                status_message=message,
+                output={"status": "error", "code": code},
+            )
+            await self._rollback_after_stream_exception(reason=code)
+            await self._finalize_user_edit_error(
+                prep=prep,
+                code=code,
+                message=message,
+                partial_content=accumulated,
+            )
+            return _sse_event({"type": "error", "code": code, "message": message})
+
         try:
             workflow_trace_context = current_trace_context(workflow_observation)
             if workflow_trace_context is not None:
@@ -2991,80 +2926,20 @@ class TurnService:
                 "upstream timeout: llm stream did not produce the first chunk in time; "
                 f"model={e.model}; timeout_s={e.timeout_s:.1f}"
             )
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_stream_first_chunk_timeout"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_stream_first_chunk_timeout")
-            await self._finalize_user_edit_error(
-                prep=prep,
-                code="llm_stream_first_chunk_timeout",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event(
-                {
-                    "type": "error",
-                    "code": "llm_stream_first_chunk_timeout",
-                    "message": message,
-                }
-            )
+            yield await _stream_error_frame("llm_stream_first_chunk_timeout", message)
         except LLMAuthenticationError as e:
             message = e.public_message()
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_service_error"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_service_error")
-            await self._finalize_user_edit_error(
-                prep=prep,
-                code="llm_service_error",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event({"type": "error", "code": "llm_service_error", "message": message})
+            yield await _stream_error_frame("llm_service_error", message)
         except LLMCallError as e:
             message = (
                 "upstream error: llm request failed after retries; "
                 f"model={e.model}; attempts={e.attempts}"
             )
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_service_error"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_service_error")
-            await self._finalize_user_edit_error(
-                prep=prep,
-                code="llm_service_error",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event({"type": "error", "code": "llm_service_error", "message": message})
+            yield await _stream_error_frame("llm_service_error", message)
         except Exception as e:
             logger.exception("User edit stream error for user %s: %s", current_user.id, e)
             message = "user edit stream failed: unexpected streaming error"
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "user_edit_stream_failed"},
-            )
-            await self._rollback_after_stream_exception(reason="user_edit_stream_failed")
-            await self._finalize_user_edit_error(
-                prep=prep,
-                code="user_edit_stream_failed",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event(
-                {"type": "error", "code": "user_edit_stream_failed", "message": message}
-            )
+            yield await _stream_error_frame("user_edit_stream_failed", message)
         finally:
             if post_done_tasks is not None:
                 await post_done_tasks.aclose()

@@ -1060,6 +1060,22 @@ class ChatService:
         workflow_observation = workflow_context.__enter__()
         workflow_trace_context = current_trace_context(workflow_observation)
 
+        async def _stream_error_frame(code: str, message: str, **extra_output: Any) -> str:
+            update_observation_safe(
+                workflow_observation,
+                level="ERROR",
+                status_message=message,
+                output={"status": "error", "code": code, **extra_output},
+            )
+            await self._rollback_after_stream_exception(reason=code)
+            await self._finalize_stream_error(
+                prep=prep,
+                code=code,
+                message=message,
+                partial_content=accumulated,
+            )
+            return _sse_event({"type": "error", "code": code, "message": message})
+
         try:
             t_obs_ctx = time.monotonic()
             if workflow_trace_context is not None:
@@ -1750,85 +1766,25 @@ class ChatService:
                 "upstream timeout: llm stream did not produce the first chunk in time; "
                 f"model={e.model}; timeout_s={e.timeout_s:.1f}"
             )
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_stream_first_chunk_timeout"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_stream_first_chunk_timeout")
-            await self._finalize_stream_error(
-                prep=prep,
-                code="llm_stream_first_chunk_timeout",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event(
-                {
-                    "type": "error",
-                    "code": "llm_stream_first_chunk_timeout",
-                    "message": message,
-                }
-            )
+            yield await _stream_error_frame("llm_stream_first_chunk_timeout", message)
         except LLMAuthenticationError as e:
             message = e.public_message()
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_service_error"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_service_error")
-            await self._finalize_stream_error(
-                prep=prep,
-                code="llm_service_error",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event({"type": "error", "code": "llm_service_error", "message": message})
+            yield await _stream_error_frame("llm_service_error", message)
         except LLMCallError as e:
             message = (
                 "upstream error: llm request failed after retries; "
                 f"model={e.model}; attempts={e.attempts}"
             )
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={"status": "error", "code": "llm_service_error"},
-            )
-            await self._rollback_after_stream_exception(reason="llm_service_error")
-            await self._finalize_stream_error(
-                prep=prep,
-                code="llm_service_error",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event({"type": "error", "code": "llm_service_error", "message": message})
+            yield await _stream_error_frame("llm_service_error", message)
         except Exception as e:
             logger.exception(
                 "Chat stream error user=%s chat=%s has_images=%s error_type=%s: %s",
                 current_user.id, prep.chat_id, prep.has_images, type(e).__name__, e,
             )
             message = f"chat stream failed: {type(e).__name__} — {e}"
-            update_observation_safe(
-                workflow_observation,
-                level="ERROR",
-                status_message=message,
-                output={
-                    "status": "error",
-                    "code": "chat_stream_failed",
-                    "error_type": type(e).__name__,
-                },
+            yield await _stream_error_frame(
+                "chat_stream_failed", message, error_type=type(e).__name__
             )
-            await self._rollback_after_stream_exception(reason="chat_stream_failed")
-            await self._finalize_stream_error(
-                prep=prep,
-                code="chat_stream_failed",
-                message=message,
-                partial_content=accumulated,
-            )
-            yield _sse_event({"type": "error", "code": "chat_stream_failed", "message": message})
         finally:
             if post_done_tasks is not None:
                 await post_done_tasks.aclose()
