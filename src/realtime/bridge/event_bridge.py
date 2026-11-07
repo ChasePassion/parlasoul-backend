@@ -13,6 +13,23 @@ logger = logging.getLogger(__name__)
 
 SendJson = Callable[[dict], Awaitable[None]]
 
+# Subscription order is also the AsyncExitStack registration and queues order.
+_BRIDGE_EVENT_TYPES = (
+    "speech_started",
+    "speech_stopped",
+    "response_started",
+    "response_interrupted",
+    "response_audio_stopped",
+    "response_done",
+    "conversation_turn_created",
+    "conversation_turn_updated",
+    "conversation_turn_failed",
+    "subtitle_delta",
+    "subtitle_final",
+    "error",
+    "session_updated",
+)
+
 
 class EventBridge:
     def __init__(self, *, bus: RealtimeEventBus, send_json: SendJson) -> None:
@@ -39,42 +56,11 @@ class EventBridge:
 
     async def _run(self) -> None:
         async with AsyncExitStack() as stack:
-            speech_started = await stack.enter_async_context(self._bus.subscribe("speech_started"))
-            speech_stopped = await stack.enter_async_context(self._bus.subscribe("speech_stopped"))
-            response_started = await stack.enter_async_context(self._bus.subscribe("response_started"))
-            response_interrupted = await stack.enter_async_context(self._bus.subscribe("response_interrupted"))
-            response_audio_stopped = await stack.enter_async_context(
-                self._bus.subscribe("response_audio_stopped")
-            )
-            response_done = await stack.enter_async_context(self._bus.subscribe("response_done"))
-            conversation_turn_created = await stack.enter_async_context(
-                self._bus.subscribe("conversation_turn_created")
-            )
-            conversation_turn_updated = await stack.enter_async_context(
-                self._bus.subscribe("conversation_turn_updated")
-            )
-            conversation_turn_failed = await stack.enter_async_context(
-                self._bus.subscribe("conversation_turn_failed")
-            )
-            subtitle_delta = await stack.enter_async_context(self._bus.subscribe("subtitle_delta"))
-            subtitle_final = await stack.enter_async_context(self._bus.subscribe("subtitle_final"))
-            errors = await stack.enter_async_context(self._bus.subscribe("error"))
-            session_updates = await stack.enter_async_context(self._bus.subscribe("session_updated"))
-
-            queues = (
-                speech_started,
-                speech_stopped,
-                response_started,
-                response_interrupted,
-                response_audio_stopped,
-                response_done,
-                conversation_turn_created,
-                conversation_turn_updated,
-                conversation_turn_failed,
-                subtitle_delta,
-                subtitle_final,
-                errors,
-                session_updates,
+            queues = tuple(
+                [
+                    await stack.enter_async_context(self._bus.subscribe(event_type))
+                    for event_type in _BRIDGE_EVENT_TYPES
+                ]
             )
             pending = {
                 asyncio.create_task(queue.get()): queue
