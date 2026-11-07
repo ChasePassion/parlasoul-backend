@@ -253,6 +253,7 @@ class TTSGatewayService:
         provider_model: str | None,
         voice_source_type: str,
         instructions: str | None = None,
+        voice_profile: dict[str, Any] | None = None,
     ) -> AsyncGenerator[tuple[str, str], None]:
         provider, provider_model, provider_voice_id = self._normalize_system_voice_inputs(
             provider=provider,
@@ -278,6 +279,7 @@ class TTSGatewayService:
                 instructions=instructions,
                 provider_voice_id=provider_voice_id,
                 provider_model=route.model,
+                voice_profile=voice_profile,
             ):
                 yield chunk
             return
@@ -308,6 +310,7 @@ class TTSGatewayService:
         provider_model: str | None,
         voice_source_type: str,
         instructions: str | None = None,
+        voice_profile: dict[str, Any] | None = None,
         debug_capture: Any | None = None,
         segment_counter: list[int] | None = None,
     ) -> AsyncGenerator[tuple[str, str], None]:
@@ -335,6 +338,7 @@ class TTSGatewayService:
                 instructions=instructions,
                 provider_voice_id=provider_voice_id,
                 provider_model=route.model,
+                voice_profile=voice_profile,
                 debug_capture=debug_capture,
                 segment_counter=segment_counter,
             ):

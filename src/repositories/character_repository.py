@@ -18,7 +18,6 @@ from src.core.tts_registry import (
 from src.db.models import (
     AuthorType,
     Character,
-    CharacterStatusType,
     Chat,
     Turn,
     User,
@@ -86,7 +85,6 @@ class CharacterRepository:
             .outerjoin(User, Character.creator_id == User.id)
             .where(
                 Character.visibility == VisibilityType.PUBLIC.value,
-                Character.status == CharacterStatusType.ACTIVE.value,
             )
             .order_by(Character.created_at.asc(), Character.id.asc())
             .offset(skip)
@@ -239,11 +237,25 @@ class CharacterRepository:
         return character
 
     async def unpublish(self, character: Character) -> Character:
-        if character.status != CharacterStatusType.UNPUBLISHED.value:
-            character.status = CharacterStatusType.UNPUBLISHED.value
+        """Withdraw a character from the public market by making it private."""
+        if character.visibility != VisibilityType.PRIVATE.value:
+            character.visibility = VisibilityType.PRIVATE.value
             character.unpublished_at = datetime.now(UTC)
             await self._db.commit()
             await self._db.refresh(character)
+        return character
+
+    async def delete(self, character: Character) -> None:
+        """Remove the character; chats and per-character stats cascade."""
+        await self._db.delete(character)
+        await self._db.commit()
+
+    async def publish(self, character: Character) -> Character:
+        """Put a character back on the public market."""
+        character.visibility = VisibilityType.PUBLIC.value
+        character.unpublished_at = None
+        await self._db.commit()
+        await self._db.refresh(character)
         return character
 
     async def count_distinct_users_by_character(self, character_id: uuid.UUID) -> int:

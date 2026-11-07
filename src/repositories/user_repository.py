@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.db.models import Character, CharacterStatusType, User, VisibilityType
+from src.db.models import Character, User, VisibilityType
 
 _TERMINAL_ONBOARDING_STATUSES = frozenset({"completed", "skipped"})
 
@@ -84,7 +84,6 @@ class UserRepository:
         if public_only:
             stmt = stmt.where(
                 Character.visibility == VisibilityType.PUBLIC.value,
-                Character.status == CharacterStatusType.ACTIVE.value,
             )
         stmt = stmt.offset(skip).limit(limit)
 

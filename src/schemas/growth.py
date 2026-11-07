@@ -8,7 +8,6 @@ from enum import StrEnum
 from pydantic import ConfigDict
 from sqlmodel import Field, SQLModel
 
-from src.schemas.character import CharacterStatusEnum
 from src.schemas.media import AvatarUrls
 
 
@@ -105,7 +104,6 @@ class GrowthMakeUpResponse(SQLModel):
 class GrowthCharacterSummary(SQLModel):
     character_id: str
     character_name: str
-    character_status: CharacterStatusEnum = CharacterStatusEnum.ACTIVE
     avatar_image_key: str | None = None
     avatar_urls: AvatarUrls | None = None
     total_message_count: int
@@ -140,7 +138,6 @@ class GrowthChatHeaderResponse(SQLModel):
 class GrowthCharacterHeadline(SQLModel):
     character_id: str
     character_name: str
-    character_status: CharacterStatusEnum = CharacterStatusEnum.ACTIVE
     avatar_image_key: str | None = None
     avatar_urls: AvatarUrls | None = None
     total_message_count: int
@@ -179,7 +176,6 @@ class GrowthTrendPoint(SQLModel):
 class GrowthRankingItem(SQLModel):
     character_id: str
     character_name: str
-    character_status: CharacterStatusEnum = CharacterStatusEnum.ACTIVE
     avatar_image_key: str | None = None
     avatar_urls: AvatarUrls | None = None
     total_message_count: int

@@ -22,6 +22,7 @@ class _StubCharacterService:
         self.get_character = AsyncMock()
         self.update_character = AsyncMock()
         self.unpublish_character = AsyncMock()
+        self.delete_character = AsyncMock()
 
 
 def _build_user() -> User:
@@ -111,7 +112,7 @@ def test_unpublish_character_route_returns_200_and_delegates() -> None:
     service.unpublish_character.assert_awaited_once()
 
 
-def test_delete_character_route_is_removed() -> None:
+def test_delete_character_route_returns_204_and_delegates() -> None:
     service = _StubCharacterService()
     app = _create_app(service)
     character_id = str(uuid.uuid4())
@@ -119,5 +120,5 @@ def test_delete_character_route_is_removed() -> None:
     with TestClient(app) as client:
         resp = client.delete(f"/v1/characters/{character_id}")
 
-    assert resp.status_code == 405
-    service.unpublish_character.assert_not_awaited()
+    assert resp.status_code == 204
+    service.delete_character.assert_awaited_once()

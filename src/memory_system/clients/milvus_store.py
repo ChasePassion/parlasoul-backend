@@ -519,6 +519,41 @@ class MilvusStore:
         )
         return count
     
+    def delete_groups_for_character(self, character_id: str) -> int:
+        """Delete all narrative groups for a character across every user.
+
+        Used when a character is permanently deleted; the character id will
+        never be referenced again, so no user scoping applies.
+
+        Returns:
+            Number of deleted group records.
+        """
+        groups_collection = self._get_groups_collection_name()
+        if not self._client.has_collection(groups_collection):
+            return 0
+
+        filter_expr = build_filter(None, character_id)
+        before = self._client.query(
+            collection_name=groups_collection,
+            filter=filter_expr,
+            output_fields=["group_id"],
+        )
+        count = len(before)
+        if count == 0:
+            return 0
+
+        self._client.delete(
+            collection_name=groups_collection,
+            filter=filter_expr,
+        )
+        logger.info(
+            "Deleted %s groups from '%s' for character_id=%s (all users)",
+            count,
+            groups_collection,
+            character_id,
+        )
+        return count
+
     def update_memory_group_id(
         self,
         memory_id: int,

@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from src.core.config import settings
 from src.core.exceptions import APIError
 from src.core.uow import UnitOfWork
-from src.db.models import CharacterStatusType, ProactiveMessageDispatch, User
+from src.db.models import ProactiveMessageDispatch, User, VisibilityType
 from src.memory_system.exceptions import LLMAuthenticationError, LLMCallError
 from src.repositories.character_repository import CharacterRepository
 from src.repositories.memory_repository import MemoryRepository
@@ -118,7 +118,7 @@ class ProactiveMessageJob:
 
         dispatch.selected_character_id = selection.selected_character_id
         character = await self._character_repo.get_by_id(selection.selected_character_id)
-        if character is None or character.status != CharacterStatusType.ACTIVE.value:
+        if character is None or character.visibility != VisibilityType.PUBLIC.value:
             await self._dispatch_repo.mark_skipped(
                 dispatch,
                 error_code="resource_not_found",

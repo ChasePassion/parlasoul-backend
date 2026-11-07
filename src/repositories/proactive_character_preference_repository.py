@@ -12,11 +12,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.db.models import (
     AuthorType,
     Character,
-    CharacterStatusType,
     Chat,
     ProactiveCharacterPreference,
     Turn,
     User,
+    VisibilityType,
 )
 
 
@@ -34,7 +34,7 @@ class ProactiveCharacterPreferenceRepository:
             .where(
                 Chat.user_id == user_id,
                 Turn.author_type == AuthorType.USER.value,
-                Character.status == CharacterStatusType.ACTIVE.value,
+                Character.visibility == VisibilityType.PUBLIC.value,
             )
             .distinct()
         )
@@ -98,7 +98,7 @@ class ProactiveCharacterPreferenceRepository:
             .outerjoin(User, User.id == Character.creator_id)
             .where(
                 ProactiveCharacterPreference.user_id == user_id,
-                Character.status == CharacterStatusType.ACTIVE.value,
+                Character.visibility == VisibilityType.PUBLIC.value,
             )
             .order_by(desc(interacted_subq.c.last_interaction_at), desc(Character.id))
         )
@@ -117,7 +117,7 @@ class ProactiveCharacterPreferenceRepository:
             .where(
                 ProactiveCharacterPreference.user_id == user_id,
                 ProactiveCharacterPreference.enabled.is_(True),
-                Character.status == CharacterStatusType.ACTIVE.value,
+                Character.visibility == VisibilityType.PUBLIC.value,
             )
         )
         rows = await self._db.execute(stmt)

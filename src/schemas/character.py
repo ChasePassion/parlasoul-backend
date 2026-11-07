@@ -22,13 +22,6 @@ class VisibilityEnum(StrEnum):
     PRIVATE = "PRIVATE"
 
 
-class CharacterStatusEnum(StrEnum):
-    """Lifecycle status for character resources."""
-
-    ACTIVE = "ACTIVE"
-    UNPUBLISHED = "UNPUBLISHED"
-
-
 def _normalize_preset_id(value: object) -> str | None:
     if value is None:
         return None
@@ -70,6 +63,10 @@ class CharacterCreate(SQLModel):
     voice_source_type: VoiceSourceTypeEnum = Field(
         default=VoiceSourceTypeEnum.SYSTEM,
         description="Voice source type",
+    )
+    voice_profile: dict | None = Field(
+        default=None,
+        description="Voice shaping: base_voice_id, speech_rate, volume, pitch_rate",
     )
     llm_preset_id: str = Field(
         default=LLM_PRESET_FREE,
@@ -115,6 +112,10 @@ class CharacterUpdate(SQLModel):
         None,
         description="Voice source type",
     )
+    voice_profile: dict | None = Field(
+        default=None,
+        description="Voice shaping: base_voice_id, speech_rate, volume, pitch_rate",
+    )
     llm_preset_id: str | None = Field(
         default=None,
         max_length=40,
@@ -141,11 +142,11 @@ class CharacterResponse(SQLModel):
     voice_model: str
     voice_provider_voice_id: str
     voice_source_type: VoiceSourceTypeEnum
+    voice_profile: dict | None = None
     voice: VoiceSelectableItem | None = None
     llm_preset_id: str | None = None
     creator_id: str | None = None
     creator_username: str | None = None
-    status: CharacterStatusEnum = CharacterStatusEnum.ACTIVE
     unpublished_at: datetime | None = None
     visibility: str  # Return as string for flexibility
     identifier: str | None = None

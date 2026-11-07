@@ -350,7 +350,6 @@ class GrowthService:
         summary = GrowthCharacterSummary(
             character_id=str(character.id),
             character_name=character.name,
-            character_status=character.status,
             **_avatar_payload(character),
             total_message_count=int(character_stats.total_message_count if character_stats else 0),
             total_word_count=int(character_stats.total_word_count if character_stats else 0),
@@ -471,7 +470,6 @@ class GrowthService:
             top_character_headline = GrowthCharacterHeadline(
                 character_id=str(character.id),
                 character_name=character.name,
-                character_status=character.status,
                 **_avatar_payload(character),
                 total_message_count=int(stats.total_message_count),
                 chatted_days_count=int(stats.chatted_days_count),
@@ -532,7 +530,6 @@ class GrowthService:
                 focus_character_headline = GrowthCharacterHeadline(
                     character_id=str(focus_character.id),
                     character_name=focus_character.name,
-                    character_status=focus_character.status,
                     **_avatar_payload(focus_character),
                     total_message_count=int(focus_stats.total_message_count if focus_stats else 0),
                     chatted_days_count=int(focus_stats.chatted_days_count if focus_stats else 0),
@@ -575,7 +572,6 @@ class GrowthService:
         return GrowthRankingItem(
             character_id=str(character.id),
             character_name=character.name,
-            character_status=character.status,
             **_avatar_payload(character),
             total_message_count=int(stats.total_message_count),
             total_word_count=int(stats.total_word_count),

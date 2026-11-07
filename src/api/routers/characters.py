@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 
 from src.api import deps
-from src.api.response import success_response
+from src.api.response import no_content_response, success_response
 from src.core.dependencies import get_character_service
 from src.db.models import User
 from src.schemas.character import CharacterCreate, CharacterResponse, CharacterUpdate
@@ -59,8 +59,7 @@ async def get_character(
     
     Authorization: Optional
     - Public characters: accessible by anyone
-    - Private characters: accessible by anyone with direct link
-    - Unpublished characters: only accessible by creator
+    - Private (unlisted) characters: accessible by anyone with the direct link
     - Invalid token: 401
     """
     data = await service.get_character(character_id, current_user=current_user)
@@ -83,6 +82,17 @@ async def update_character(
     return success_response(data, status_code=200)
 
 
+@router.delete("/{character_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_character(
+    character_id: uuid.UUID,
+    current_user: User = Depends(deps.get_current_user),
+    service: CharacterService = Depends(get_character_service),
+):
+    """Permanently delete a character. Only creator can delete."""
+    await service.delete_character(character_id, current_user=current_user)
+    return no_content_response()
+
+
 @router.post("/{character_id}/unpublish", response_model=SuccessEnvelope[CharacterResponse])
 async def unpublish_character(
     character_id: uuid.UUID,
@@ -91,4 +101,15 @@ async def unpublish_character(
 ) -> SuccessEnvelope[CharacterResponse]:
     """Unpublish a character. Only creator can unpublish."""
     data = await service.unpublish_character(character_id, current_user=current_user)
+    return success_response(data, status_code=200)
+
+
+@router.post("/{character_id}/publish", response_model=SuccessEnvelope[CharacterResponse])
+async def publish_character(
+    character_id: uuid.UUID,
+    current_user: User = Depends(deps.get_current_user),
+    service: CharacterService = Depends(get_character_service),
+) -> SuccessEnvelope[CharacterResponse]:
+    """Publish a character to the public market. Only creator can publish."""
+    data = await service.publish_character(character_id, current_user=current_user)
     return success_response(data, status_code=200)

@@ -7,7 +7,6 @@ from typing import Any
 from pydantic import ConfigDict
 from sqlmodel import Field, SQLModel
 
-from src.schemas.character import CharacterStatusEnum
 from src.schemas.learning import CandidateExtra
 from src.schemas.media import AvatarUrls
 
@@ -21,7 +20,6 @@ class CharacterBrief(SQLModel):
     greeting_message: str | None = None
     avatar_image_key: str | None = None
     avatar_urls: AvatarUrls | None = None
-    status: CharacterStatusEnum = CharacterStatusEnum.ACTIVE
     unpublished_at: datetime | None = None
     visibility: str
     creator_id: str | None = None

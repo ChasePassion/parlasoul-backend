@@ -410,15 +410,14 @@ sequenceDiagram
 | `system_prompt` | 驱动角色行为的核心 system prompt。 | 聊天生成时构造 LLM system prompt。 |
 | `greeting_message` | 首次建 chat 时自动插入的开场白。 | `create_chat` 时创建第一条主动消息。 |
 | `avatar_image_key` | R2 中角色头像对象 key 前缀，可推导 `/media/*/*.avif` 变体 URL。 | 角色创建 / 编辑新上传后写入，市场、聊天、成长统计和分享卡读取。 |
-| `visibility` | 角色可见性，枚举 `visibility_t` 取值 `PUBLIC/PRIVATE`。 | 市场查询、详情页权限、分享页直链读取。 |
+| `visibility` | 角色市场生命周期，枚举 `visibility_t` 取值 `PUBLIC/PRIVATE`：`PUBLIC` 已上架公开市场；`PRIVATE` 未上架，不出现在任何公开列表，但任何持有角色 id（分享链接）的用户都可查看并正常使用。 | 市场查询、详情页权限、分享页直链读取。 |
 | `creator_id` | 角色创建者。 | 个人中心、权限控制、创作者主页。 |
 | `voice_provider` | 当前绑定音色的 provider。系统音色当前默认 `minimax`，用户克隆音色仍为 `dashscope`。 | 聊天 TTS、角色详情展示、provider-aware TTS gateway 路由。 |
 | `voice_model` | 当前绑定音色的运行时模型。系统默认 `speech-2.8-turbo`，克隆音色保存 DashScope 克隆 TTS 模型。 | TTS 调用时直接使用。 |
 | `voice_provider_voice_id` | 当前绑定音色在 provider 侧的 voice id。系统音色保存 MiniMax voice id；克隆音色保存 DashScope clone voice id。 | TTS 调用与角色绑定判断。 |
 | `voice_source_type` | 当前绑定音色来源类型。`system` 走系统音色 catalog；`clone` 走用户音色资产校验。 | 区分 system / clone 等来源，并决定 provider registry 路由。 |
 | `llm_preset_id` | 产品化 LLM 预设，当前为 `free/flagship`；`flagship` 需要付费权益。 | 角色创建 / 编辑写入，聊天生成时解析实际 provider/model。 |
-| `status` | 角色生命周期状态，当前重点是 `ACTIVE/UNPUBLISHED`。 | 下架后市场不可见，但历史聊天保留。 |
-| `unpublished_at` | 下架时间。 | 只读历史与运营审计。 |
+| `unpublished_at` | 最近一次离开公开市场的时间（`visibility` 从 `PUBLIC` 写成 `PRIVATE` 时写入，重新上架时清空；从未上架为空）。 | 只读历史与运营审计。 |
 | `created_at` | 创建时间。 | 排序、审计。 |
 | `updated_at` | 最后更新时间。 | 编辑角色后刷新。 |
 

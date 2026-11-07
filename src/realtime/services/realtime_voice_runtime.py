@@ -120,6 +120,9 @@ class RealtimeVoiceRuntime:
             provider_model = settings.DASHSCOPE_TTS_MODEL
             provider_voice_id: str | None = None
             voice_source_type = "system"
+            voice_profile: dict[str, object] | None = None
+            if character:
+                voice_profile = character.voice_profile
             if character and character.voice_source_type == "clone":
                 provider = character.voice_provider
                 provider_model = character.voice_model
@@ -146,6 +149,7 @@ class RealtimeVoiceRuntime:
                 provider_voice_id=provider_voice_id,
                 provider_model=provider_model,
                 voice_source_type=voice_source_type,
+                voice_profile=voice_profile,
                 debug_capture=debug_capture,
                 segment_counter=segment_counter,
             ):
