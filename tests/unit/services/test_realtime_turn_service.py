@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.core.exceptions import APIError
 from src.db.models import TurnState, VisibilityType
 from src.realtime.services import realtime_turn_service as realtime_turn_module
 from src.realtime.services.realtime_turn_service import RealtimeTurnService
