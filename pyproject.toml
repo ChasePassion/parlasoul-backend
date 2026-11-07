@@ -71,6 +71,9 @@ Homepage = "https://parlasoul.com"
 Repository = "https://github.com/ChasePassion/parlasoul-backend"
 Issues = "https://github.com/ChasePassion/parlasoul-backend/issues"
 
+[tool.setuptools.package-data]
+"src.services.forge_skills" = ["*/SKILL.md", "*/system_prompt_template_*.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

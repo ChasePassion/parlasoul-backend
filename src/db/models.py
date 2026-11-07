@@ -54,13 +54,6 @@ class VisibilityType(enum.StrEnum):
     PRIVATE = "PRIVATE"
 
 
-class CharacterStatusType(enum.StrEnum):
-    """Lifecycle status for character resources."""
-
-    ACTIVE = "ACTIVE"
-    UNPUBLISHED = "UNPUBLISHED"
-
-
 class ChatType(enum.StrEnum):
     """Chat type enum."""
 
@@ -734,10 +727,6 @@ class Character(Base, table=True):
     __tablename__ = "characters"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('ACTIVE', 'UNPUBLISHED')",
-            name="characters_status_check",
-        ),
-        CheckConstraint(
             "voice_source_type IN ('system', 'clone', 'designed', 'imported')",
             name="characters_voice_source_type_check",
         ),
@@ -779,15 +768,13 @@ class Character(Base, table=True):
         default=VoiceSourceType.SYSTEM.value,
         sa_column=Column(String(20), nullable=False, server_default=VoiceSourceType.SYSTEM.value),
     )
+    voice_profile: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False, server_default="{}"),
+    )
     llm_preset_id: str = Field(
         default=LLM_PRESET_FREE,
         sa_column=Column(String(40), nullable=False, server_default=LLM_PRESET_FREE),
-    )
-    status: str = Field(
-        default=CharacterStatusType.ACTIVE.value,
-        sa_column=Column(
-            String(20), nullable=False, server_default=CharacterStatusType.ACTIVE.value
-        ),
     )
     unpublished_at: datetime | None = Field(
         default=None,
@@ -2420,3 +2407,119 @@ class EvalResult(Base, table=True):
     )
 
     run: EvalRun | None = Relationship(back_populates="results")
+
+
+class CharacterForgeSession(Base, table=True):
+    """A persisted conversation with the character-forge agent."""
+
+    __tablename__ = "character_forge_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'archived')",
+            name="character_forge_sessions_status_check",
+        ),
+        Index(
+            "character_forge_sessions_user_updated_idx",
+            "user_id",
+            text("updated_at DESC"),
+        ),
+    )
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        sa_column=Column(PGUUID(as_uuid=True), primary_key=True, nullable=False),
+    )
+    user_id: uuid.UUID = Field(
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+    )
+    title: str = Field(
+        default="新角色",
+        sa_column=Column(Text, nullable=False, server_default="新角色"),
+    )
+    active_character_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("characters.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
+    status: str = Field(
+        default="active",
+        sa_column=Column(String(20), nullable=False, server_default="active"),
+    )
+    created_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False),
+    )
+    updated_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(
+            TIMESTAMP(timezone=True),
+            server_default=func.now(),
+            onupdate=func.now(),
+            nullable=False,
+        ),
+    )
+
+
+class CharacterForgeMessage(Base, table=True):
+    """A single message inside a character-forge session.
+
+    ``role='tool'`` rows keep the raw OpenAI tool result so the agent loop can
+    be replayed after a page refresh. ``ui_payloads`` stores the frontend cards
+    (voice preview, created character) so they survive a reload as well.
+    """
+
+    __tablename__ = "character_forge_messages"
+    __table_args__ = (
+        UniqueConstraint(
+            "session_id",
+            "seq",
+            name="character_forge_messages_session_seq_uniq",
+        ),
+        CheckConstraint(
+            "role IN ('user', 'assistant', 'tool')",
+            name="character_forge_messages_role_check",
+        ),
+        Index(
+            "character_forge_messages_session_seq_idx",
+            "session_id",
+            "seq",
+        ),
+    )
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        sa_column=Column(PGUUID(as_uuid=True), primary_key=True, nullable=False),
+    )
+    session_id: uuid.UUID = Field(
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("character_forge_sessions.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+    )
+    seq: int = Field(sa_column=Column(BigInteger, nullable=False))
+    role: str = Field(sa_column=Column(String(20), nullable=False))
+    content: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    tool_calls: list[dict[str, Any]] | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
+    tool_call_id: str | None = Field(default=None, sa_column=Column(String(64), nullable=True))
+    tool_name: str | None = Field(default=None, sa_column=Column(String(64), nullable=True))
+    ui_payloads: list[dict[str, Any]] = Field(
+        default_factory=list,
+        sa_column=Column(JSONB, nullable=False, server_default="[]"),
+    )
+    images: list[dict[str, Any]] | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
+    created_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False),
+    )

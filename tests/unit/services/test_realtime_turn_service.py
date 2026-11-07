@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.core.exceptions import APIError
-from src.db.models import CharacterStatusType, TurnState
+from src.db.models import TurnState, VisibilityType
 from src.realtime.services import realtime_turn_service as realtime_turn_module
 from src.realtime.services.realtime_turn_service import RealtimeTurnService
 from src.realtime.session.models import CurrentTurnContext
@@ -141,7 +141,7 @@ def _build_stale_leaf_chain():
     )
     character = SimpleNamespace(
         id=character_id,
-        status=CharacterStatusType.ACTIVE.value,
+        visibility=VisibilityType.PUBLIC.value,
     )
     turns_by_id = {
         stale_assistant_turn.id: stale_assistant_turn,
@@ -341,7 +341,7 @@ async def test_begin_turn_allows_creator_of_unpublished_character(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fixture = _build_stale_leaf_chain()
-    fixture.character.status = CharacterStatusType.UNPUBLISHED.value
+    fixture.character.visibility = VisibilityType.PRIVATE.value
     fixture.character.creator_id = fixture.user_id
     session = _FakeSession()
     turn_repo = _FakeTurnRepo(
@@ -368,35 +368,3 @@ async def test_begin_turn_allows_creator_of_unpublished_character(
     assert len(turn_repo.added) == 2
 
 
-@pytest.mark.asyncio
-async def test_begin_turn_rejects_non_creator_of_unpublished_character(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fixture = _build_stale_leaf_chain()
-    fixture.character.status = CharacterStatusType.UNPUBLISHED.value
-    fixture.character.creator_id = uuid.uuid4()
-    session = _FakeSession()
-    turn_repo = _FakeTurnRepo(
-        turns_by_id=fixture.turns_by_id,
-        children_by_candidate=fixture.children_by_candidate,
-    )
-    _install_repos(
-        monkeypatch,
-        chat_repo=_FakeChatRepo(fixture.chat),
-        turn_repo=turn_repo,
-        candidate_repo=_FakeCandidateRepo(),
-        character_repo=_FakeCharacterRepo(fixture.character),
-        session=session,
-    )
-
-    with pytest.raises(APIError) as exc:
-        await RealtimeTurnService().begin_turn(
-            user_id=fixture.user_id,
-            chat_id=fixture.chat.id,
-            character_id=fixture.character.id,
-            raw_user_text="hello",
-        )
-
-    assert exc.value.status_code == 409
-    assert exc.value.code == "resource_conflict"
-    assert turn_repo.added == []

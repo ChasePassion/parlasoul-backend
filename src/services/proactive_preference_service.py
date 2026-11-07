@@ -6,15 +6,14 @@ import uuid
 
 from src.core.exceptions import APIError
 from src.core.uow import UnitOfWork
-from src.db.models import Character, CharacterStatusType, User
-from src.schemas.character import CharacterStatusEnum
+from src.db.models import Character, User
+from src.repositories.proactive_character_preference_repository import (
+    ProactiveCharacterPreferenceRepository,
+)
 from src.schemas.chat import CharacterBrief
 from src.schemas.proactive import (
     ProactiveCharacterPreferenceItem,
     ProactiveCharacterPreferenceListResponse,
-)
-from src.repositories.proactive_character_preference_repository import (
-    ProactiveCharacterPreferenceRepository,
 )
 from src.services.media_url_service import build_avatar_urls
 
@@ -27,7 +26,6 @@ def _to_character_brief(character: Character, *, creator_username: str | None) -
         greeting_message=character.greeting_message,
         avatar_image_key=character.avatar_image_key,
         avatar_urls=build_avatar_urls(character.avatar_image_key),
-        status=CharacterStatusEnum(getattr(character, "status", CharacterStatusType.ACTIVE.value)),
         unpublished_at=getattr(character, "unpublished_at", None),
         visibility=character.visibility,
         creator_id=str(character.creator_id) if character.creator_id else None,

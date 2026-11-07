@@ -394,6 +394,28 @@ class Settings(BaseSettings):
     MINIMAX_TTS_WARM_CONNECTION_WAIT_SECONDS: float = 3.0
     MINIMAX_TTS_WARM_CONNECTION_KEEPALIVE_SECONDS: float = 900.0
     MINIMAX_TTS_WARM_CONNECTION_REFRESH_MARGIN_SECONDS: float = 20.0
+
+    # Character forge (conversational character creation)
+    EXA_API_KEY: str | None = None
+    EXA_API_BASE: str = "https://api.exa.ai"
+    EXA_TIMEOUT_SECONDS: float = 20.0
+    EXA_PROXY: str | None = None
+    CHARACTER_FORGE_MAX_STEPS: int = 5
+    CHARACTER_FORGE_MAX_SEARCH_CALLS: int = 4
+    CHARACTER_FORGE_MAX_OUTPUT_TOKENS: int = 32768
+    CHARACTER_FORGE_HISTORY_LIMIT: int = 60
+    CHARACTER_FORGE_RATE_LIMIT_REQUESTS: int = 30
+    CHARACTER_FORGE_RATE_LIMIT_WINDOW_SECONDS: int = 600
+    CHARACTER_FORGE_MAX_AVATAR_CALLS: int = 2
+
+    # Qwen-Image avatar generation（百炼同步接口）
+    DASHSCOPE_IMAGE_API_URL: str = (
+        "https://dashscope.aliyuncs.com/api/v1/services/aigc/"
+        "multimodal-generation/generation"
+    )
+    DASHSCOPE_IMAGE_MODEL: str = "qwen-image-3.0"
+    DASHSCOPE_IMAGE_SIZE: str = "2048*2048"
+    DASHSCOPE_IMAGE_TIMEOUT_SECONDS: float = 300.0
     REALTIME_VAD_MODEL_PATH: str = "models/silero_vad.onnx"
     REALTIME_VAD_SAMPLE_RATE: int = 16000
     REALTIME_VAD_THRESHOLD: float = 0.5

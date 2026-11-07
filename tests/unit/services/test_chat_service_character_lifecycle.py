@@ -11,7 +11,6 @@ import pytest
 from src.core.exceptions import APIError
 from src.db.models import (
     Character,
-    CharacterStatusType,
     Chat,
     ChatState,
     ChatType,
@@ -30,7 +29,6 @@ def _character(
     character_id: uuid.UUID | None = None,
     creator_id: uuid.UUID | None = None,
     visibility: str = VisibilityType.PUBLIC.value,
-    status: str = CharacterStatusType.ACTIVE.value,
 ) -> Character:
     return Character(
         id=character_id or uuid.uuid4(),
@@ -43,7 +41,6 @@ def _character(
         voice_model="qwen3-tts-instruct-flash-realtime",
         voice_provider_voice_id="Cherry",
         voice_source_type="system",
-        status=status,
         visibility=visibility,
         creator_id=creator_id,
         identifier=None,
@@ -104,29 +101,11 @@ def _service(
 
 
 @pytest.mark.asyncio
-async def test_create_chat_rejects_unpublished_character() -> None:
-    current_user = _user()
-    character = _character(
-        creator_id=uuid.uuid4(),
-        status=CharacterStatusType.UNPUBLISHED.value,
-    )
-    chat_repo = SimpleNamespace(add=AsyncMock())
-    character_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=character))
-    service = _service(chat_repo=chat_repo, character_repo=character_repo)
-
-    with pytest.raises(APIError) as exc:
-        await service.create_chat(current_user=current_user, character_id=character.id, meta=None)
-
-    assert exc.value.status_code == 409
-    assert exc.value.code == "resource_conflict"
-
-
-@pytest.mark.asyncio
 async def test_create_chat_allows_creator_of_unpublished_character() -> None:
     current_user = _user()
     character = _character(
         creator_id=current_user.id,
-        status=CharacterStatusType.UNPUBLISHED.value,
+        visibility=VisibilityType.PRIVATE.value,
     )
     chat_repo = SimpleNamespace(add=Mock())
     turn_repo = SimpleNamespace(add=Mock())
@@ -145,18 +124,18 @@ async def test_create_chat_allows_creator_of_unpublished_character() -> None:
         meta=None,
     )
 
-    assert result.character.status == CharacterStatusType.UNPUBLISHED.value
+    assert result.character.visibility == VisibilityType.PRIVATE.value
     chat_repo.add.assert_called_once()
     turn_repo.add.assert_called_once()
     candidate_repo.add.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_get_recent_chat_detail_allows_unpublished_character_with_existing_chat() -> None:
+async def test_get_recent_chat_detail_runs_cleanup_for_private_character() -> None:
     current_user = _user()
     character = _character(
         creator_id=uuid.uuid4(),
-        status=CharacterStatusType.UNPUBLISHED.value,
+        visibility=VisibilityType.PRIVATE.value,
     )
     recent_chat = _chat(user_id=current_user.id, character_id=character.id)
     chat_repo = SimpleNamespace(
@@ -170,8 +149,8 @@ async def test_get_recent_chat_detail_allows_unpublished_character_with_existing
 
     assert result is not None
     assert result.chat.id == str(recent_chat.id)
-    assert result.character.status == CharacterStatusType.UNPUBLISHED.value
-    chat_repo.delete_empty_drafts.assert_not_awaited()
+    assert result.character.visibility == VisibilityType.PRIVATE.value
+    chat_repo.delete_empty_drafts.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -179,7 +158,7 @@ async def test_get_turns_page_returns_unpublished_character_snapshot() -> None:
     current_user = _user()
     character = _character(
         creator_id=uuid.uuid4(),
-        status=CharacterStatusType.UNPUBLISHED.value,
+        visibility=VisibilityType.PRIVATE.value,
     )
     chat = _chat(user_id=current_user.id, character_id=character.id)
     chat_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=chat))
@@ -198,7 +177,7 @@ async def test_get_turns_page_returns_unpublished_character_snapshot() -> None:
         limit=20,
     )
 
-    assert result.character.status == CharacterStatusType.UNPUBLISHED.value
+    assert result.character.visibility == VisibilityType.PRIVATE.value
     assert result.turns == []
 
 
@@ -207,7 +186,7 @@ async def test_list_sidebar_characters_includes_unpublished_status() -> None:
     current_user = _user()
     character = _character(
         creator_id=uuid.uuid4(),
-        status=CharacterStatusType.UNPUBLISHED.value,
+        visibility=VisibilityType.PRIVATE.value,
     )
     chat_repo = SimpleNamespace(
         list_characters_with_chats=AsyncMock(return_value=[(character, "creator", datetime.now(UTC), False)])
@@ -217,5 +196,5 @@ async def test_list_sidebar_characters_includes_unpublished_status() -> None:
     result = await service.list_sidebar_characters(current_user=current_user, skip=0, limit=20)
 
     assert len(result) == 1
-    assert result[0].status == CharacterStatusType.UNPUBLISHED.value
+    assert result[0].visibility == VisibilityType.PRIVATE.value
     assert result[0].creator_username == "creator"

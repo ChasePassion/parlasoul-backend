@@ -299,6 +299,13 @@ class MemoryRepository:
             character_id=character_id,
         )
 
+    async def purge_character(self, *, character_id: str) -> int:
+        """Delete every memory for a character across all users."""
+        return await run_blocking(
+            self._get_memory().purge_character,
+            character_id=character_id,
+        )
+
     async def consolidate(
         self,
         *,

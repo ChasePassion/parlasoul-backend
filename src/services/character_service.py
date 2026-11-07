@@ -2,23 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
-from src.core.llm_presets import PAID_LLM_PRESET_IDS
 from src.core.error_codes import ErrorCode
 from src.core.exceptions import APIError
+from src.core.llm_presets import PAID_LLM_PRESET_IDS
 from src.core.tts_registry import TTSRegistry
 from src.core.tts_registry import tts_registry as default_tts_registry
 from src.core.tts_voice_catalog import legacy_dashscope_voice_id_for_minimax
+from src.core.voice_profiles import normalize_voice_profile
 from src.db.models import (
     Character,
-    CharacterStatusType,
     User,
-    VisibilityType,
     VoiceProfile,
     VoiceSourceType,
 )
 from src.repositories.character_repository import CharacterRepository
+from src.repositories.memory_repository import MemoryRepository
 from src.repositories.voice_gateway_repository import VoiceGatewayRepository
 from src.repositories.voice_profile_repository import VoiceProfileRepository
 from src.schemas.character import CharacterCreate, CharacterResponse, CharacterUpdate
@@ -112,11 +113,11 @@ def _to_response(
         voice_model=character.voice_model,
         voice_provider_voice_id=character.voice_provider_voice_id,
         voice_source_type=character.voice_source_type,
+        voice_profile=character.voice_profile or None,
         voice=voice,
         llm_preset_id=character.llm_preset_id,
         creator_id=str(character.creator_id) if character.creator_id else None,
         creator_username=creator_username,
-        status=character.status,
         unpublished_at=character.unpublished_at,
         visibility=character.visibility,
         identifier=character.identifier,
@@ -149,6 +150,9 @@ def _is_character_creator(character: Character, current_user: User | None) -> bo
     return current_user is not None and character.creator_id == current_user.id
 
 
+logger = logging.getLogger(__name__)
+
+
 class CharacterService:
     """Business logic for character operations."""
 
@@ -158,6 +162,7 @@ class CharacterService:
         voice_profile_repo: VoiceProfileRepository,
         voice_gateway_repo: VoiceGatewayRepository,
         subscription_service: SubscriptionService | None = None,
+        memory_repo: MemoryRepository | None = None,
         *,
         tts_registry: TTSRegistry | None = None,
     ):
@@ -165,6 +170,7 @@ class CharacterService:
         self._voice_profile_repo = voice_profile_repo
         self._voice_gateway_repo = voice_gateway_repo
         self._subscription_service = subscription_service
+        self._memory_repo = memory_repo
         self._tts_registry = tts_registry or default_tts_registry
 
     def _normalize_legacy_system_voice(
@@ -412,7 +418,9 @@ class CharacterService:
         await self._assert_llm_preset_allowed(preset_id=preset_id, current_user=current_user)
 
     async def create_character(
-        self, character_in: CharacterCreate, current_user: User
+        self,
+        character_in: CharacterCreate,
+        current_user: User,
     ) -> CharacterResponse:
         voice_binding, selected_voice = await self._resolve_selected_voice_or_raise(
             current_user=current_user,
@@ -430,6 +438,9 @@ class CharacterService:
             character_in.avatar_image_key,
             current_user=current_user,
         )
+        voice_profile = normalize_voice_profile(character_in.voice_profile).to_dict()
+        if voice_profile and not voice_profile.get("base_voice_id"):
+            voice_profile["base_voice_id"] = voice_binding["voice_provider_voice_id"]
         character = Character(
             name=character_in.name,
             description=character_in.description,
@@ -440,6 +451,7 @@ class CharacterService:
             voice_model=voice_binding["voice_model"],
             voice_provider_voice_id=voice_binding["voice_provider_voice_id"],
             voice_source_type=voice_binding["voice_source_type"],
+            voice_profile=voice_profile,
             llm_preset_id=llm_binding["llm_preset_id"],
             visibility=character_in.visibility.value,
             creator_id=current_user.id,
@@ -506,25 +518,6 @@ class CharacterService:
                 message=f"resource not found: character does not exist; character_id={character_id}",
             )
 
-        is_creator = _is_character_creator(character, current_user)
-        if character.status != CharacterStatusType.ACTIVE.value and not is_creator:
-            raise APIError(
-                status_code=404,
-                code="character_not_found",
-                message=f"resource not found: character does not exist; character_id={character_id}",
-            )
-
-        if character.visibility not in (VisibilityType.PUBLIC.value, VisibilityType.PRIVATE.value):
-            if not is_creator:
-                raise APIError(
-                    status_code=403,
-                    code="character_private_forbidden",
-                    message=(
-                        "authorization failed: private character is not accessible; "
-                        f"character_id={character_id}"
-                    ),
-                )
-
         voice_item = await self._resolve_character_voice_item(character)
         distinct_user_count = await self._repo.count_distinct_users_by_character(character.id)
         creator_username = await self._repo.get_creator_username(character.creator_id)
@@ -570,6 +563,14 @@ class CharacterService:
                 else None,
                 current_user=current_user,
             )
+        if "voice_profile" in update_data:
+            # ``None`` clears the shaping back to the provider defaults.
+            if update_data["voice_profile"] is None:
+                update_data["voice_profile"] = {}
+            else:
+                update_data["voice_profile"] = normalize_voice_profile(
+                    update_data["voice_profile"]
+                ).to_dict()
         await self._apply_update_llm_binding_or_raise(
             character=character,
             update_data=update_data,
@@ -652,6 +653,81 @@ class CharacterService:
         distinct_user_count = await self._repo.count_distinct_users_by_character(unpublished.id)
         return _to_response(
             unpublished,
+            selected_voice,
+            distinct_user_count=distinct_user_count,
+            creator_username=current_user.username,
+        )
+
+    async def delete_character(
+        self,
+        character_id: uuid.UUID,
+        *,
+        current_user: User,
+    ) -> None:
+        """Permanently delete a character. Only creator can delete.
+
+        Vector memories are purged across all users after the row is gone;
+        a purge failure never blocks deletion because every memory query
+        scopes by character_id, so leftover vectors stay unreachable.
+        """
+        character = await self._repo.get_by_id(character_id)
+        if not character:
+            raise APIError(
+                status_code=404,
+                code="character_not_found",
+                message=f"resource not found: character does not exist; character_id={character_id}",
+            )
+
+        if character.creator_id != current_user.id:
+            raise APIError(
+                status_code=403,
+                code="character_modify_forbidden",
+                message=(
+                    "authorization failed: only creator can delete character; "
+                    f"character_id={character_id}"
+                ),
+            )
+
+        await self._repo.delete(character)
+
+        if self._memory_repo is not None:
+            try:
+                await self._memory_repo.purge_character(character_id=str(character.id))
+            except Exception:
+                logger.exception(
+                    "Memory purge failed after character deletion; character_id=%s",
+                    character_id,
+                )
+
+    async def publish_character(
+        self,
+        character_id: uuid.UUID,
+        *,
+        current_user: User,
+    ) -> CharacterResponse:
+        character = await self._repo.get_by_id(character_id)
+        if not character:
+            raise APIError(
+                status_code=404,
+                code="character_not_found",
+                message=f"resource not found: character does not exist; character_id={character_id}",
+            )
+
+        if character.creator_id != current_user.id:
+            raise APIError(
+                status_code=403,
+                code="character_modify_forbidden",
+                message=(
+                    "authorization failed: only creator can publish character; "
+                    f"character_id={character_id}"
+                ),
+            )
+
+        published = await self._repo.publish(character)
+        selected_voice = await self._resolve_character_voice_item(published)
+        distinct_user_count = await self._repo.count_distinct_users_by_character(published.id)
+        return _to_response(
+            published,
             selected_voice,
             distinct_user_count=distinct_user_count,
             creator_username=current_user.username,

@@ -43,7 +43,6 @@ from src.repositories.user_settings_repository import UserSettingsRepository
 from src.schemas.chat import ChatImageRef
 from src.schemas.learning import FeedbackCardPayload, ReplyCardPayload
 from src.services.bg_tasks import spawn_bg_task
-from src.services.character_access_service import assert_character_chat_writable
 from src.services.character_llm_route_service import ResolvedCharacterLLMRoute
 from src.services.character_llm_service import CharacterLLMService
 from src.services.chat_generation_service import ChatGenerationContext, build_generation_messages
@@ -727,7 +726,6 @@ class TurnService:
                     code="character_not_found",
                     message=f"resource not found: character does not exist; character_id={chat.character_id}",
                 )
-            assert_character_chat_writable(character, user_id=current_user.id)
             resolved_llm_route = await self._character_llm_service.resolve_runtime_route(character)
 
             max_no = await self._candidate_repo.get_max_candidate_no(turn_id=assistant_turn.id)
@@ -996,6 +994,7 @@ class TurnService:
                             provider_model=tts_provider_model,
                             voice_source_type=tts_voice_source_type
                             or prep.character.voice_source_type,
+                            voice_profile=prep.character.voice_profile,
                         ):
                             await tts_events_queue.put(event)
                     except APIError as exc:
@@ -1579,7 +1578,6 @@ class TurnService:
                     code="character_not_found",
                     message=f"resource not found: character does not exist; character_id={chat.character_id}",
                 )
-            assert_character_chat_writable(character, user_id=current_user.id)
 
             if source_turn.primary_candidate_id:
                 existing_child = await self._turn_repo.get_child_by_parent_candidate(
@@ -1850,6 +1848,7 @@ class TurnService:
                             provider_model=tts_provider_model,
                             voice_source_type=tts_voice_source_type
                             or prep.character.voice_source_type,
+                            voice_profile=prep.character.voice_profile,
                         ):
                             await tts_events_queue.put(event)
                     except APIError as exc:
@@ -2358,7 +2357,6 @@ class TurnService:
                     code="character_not_found",
                     message=f"resource not found: character does not exist; character_id={chat.character_id}",
                 )
-            assert_character_chat_writable(character, user_id=current_user.id)
             resolved_llm_route = await self._character_llm_service.resolve_runtime_route(character)
 
             max_no = await self._candidate_repo.get_max_candidate_no(turn_id=user_turn.id)
@@ -2664,6 +2662,7 @@ class TurnService:
                             provider_model=tts_provider_model,
                             voice_source_type=tts_voice_source_type
                             or prep.character.voice_source_type,
+                            voice_profile=prep.character.voice_profile,
                         ):
                             await tts_events_queue.put(event)
                     except APIError as exc:

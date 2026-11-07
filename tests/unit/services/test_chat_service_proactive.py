@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.db.models import Character, CharacterStatusType, ChatState, ChatType, User, VisibilityType
+from src.db.models import Character, ChatState, ChatType, User, VisibilityType
 from src.services.chat_service import ChatService
 
 
@@ -27,7 +27,7 @@ def _character() -> Character:
         voice_model="speech-2.8-turbo",
         voice_provider_voice_id="voice-1",
         voice_source_type="system",
-        status=CharacterStatusType.ACTIVE.value,
+        status=VisibilityType.PUBLIC.value,
         visibility=VisibilityType.PUBLIC.value,
         creator_id=uuid.uuid4(),
         identifier=None,

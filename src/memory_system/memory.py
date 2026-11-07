@@ -1122,6 +1122,39 @@ class Memory:
     
 
 
+    def purge_character(self, character_id: str) -> int:
+        """Delete every memory and narrative group for a character, all users.
+
+        Used when a character is permanently deleted: the character id will
+        never be referenced again, so no per-user scoping applies.
+
+        Args:
+            character_id: Character identifier
+
+        Returns:
+            Number of deleted memories
+        """
+        filter_expr = build_filter(None, character_id)
+        count = self._store.delete(filter_expr=filter_expr)
+        groups_deleted = 0
+        try:
+            groups_deleted = self._store.delete_groups_for_character(character_id)
+        except Exception as e:
+            logger.warning(
+                "Memory purge group cleanup failed: character_id=%s err=%s",
+                character_id,
+                e,
+            )
+
+        logger.info(
+            "Memory operation 'purge_character': character_id=%s, affected_count=%s, groups_deleted=%s",
+            character_id,
+            count,
+            groups_deleted,
+        )
+
+        return count
+
     @observe(name="memory.consolidate.batch")
     def consolidate(self, user_id: str, character_id: str) -> ConsolidationStats:
         return _run_coroutine_sync(self.consolidate_async(user_id, character_id))

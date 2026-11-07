@@ -13,7 +13,7 @@ from src.core.tts_registry import (
     DEFAULT_SYSTEM_TTS_PROVIDER,
     DEFAULT_SYSTEM_TTS_VOICE_ID,
 )
-from src.db.models import Character, CharacterStatusType, User, VisibilityType
+from src.db.models import Character, User, VisibilityType
 from src.repositories.character_repository import CharacterRepository
 from src.repositories.voice_gateway_repository import VoiceGatewayRepository
 from src.repositories.voice_profile_repository import VoiceProfileRepository
@@ -41,7 +41,6 @@ def _build_character(
     character_id: uuid.UUID | None = None,
     creator_id: uuid.UUID | None = None,
     visibility: str = VisibilityType.PRIVATE.value,
-    status: str = CharacterStatusType.ACTIVE.value,
 ) -> Character:
     return Character(
         id=character_id or uuid.uuid4(),
@@ -54,7 +53,6 @@ def _build_character(
         voice_model=DEFAULT_SYSTEM_TTS_MODEL,
         voice_provider_voice_id=DEFAULT_SYSTEM_TTS_VOICE_ID,
         voice_source_type="system",
-        status=status,
         visibility=visibility,
         creator_id=creator_id,
         identifier=None,
@@ -260,7 +258,31 @@ async def test_update_character_rejects_null_llm_preset() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_character_private_access_allowed_for_non_owner() -> None:
+async def test_get_character_public_visible_to_non_owner() -> None:
+    owner_id = uuid.uuid4()
+    viewer_id = uuid.uuid4()
+    character = _build_character(creator_id=owner_id, visibility=VisibilityType.PUBLIC.value)
+    repo = CharacterRepository.__new__(CharacterRepository)
+    repo.get_by_id = AsyncMock(return_value=character)
+    repo.get_creator_username = AsyncMock(return_value="owner_username")
+    repo.count_distinct_users_by_character = AsyncMock(return_value=0)
+    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
+    voice_repo.get_ready_clone_by_owner_and_provider_voice = AsyncMock(return_value=None)
+    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
+    service = CharacterService(
+        repo,
+        voice_repo,
+        gateway_repo,
+    )
+
+    result = await service.get_character(character.id, current_user=_build_user(viewer_id))
+
+    assert result is not None
+    assert result.id == str(character.id)
+
+
+@pytest.mark.asyncio
+async def test_get_character_private_accessible_without_ownership() -> None:
     owner_id = uuid.uuid4()
     viewer_id = uuid.uuid4()
     character = _build_character(creator_id=owner_id)
@@ -336,13 +358,113 @@ async def test_unpublish_character_not_found() -> None:
 
 
 @pytest.mark.asyncio
+async def test_delete_character_removes_for_creator() -> None:
+    owner = _build_user()
+    character = _build_character(creator_id=owner.id)
+    repo = CharacterRepository.__new__(CharacterRepository)
+    repo.get_by_id = AsyncMock(return_value=character)
+    repo.delete = AsyncMock()
+    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
+    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
+    service = CharacterService(repo, voice_repo, gateway_repo)
+
+    await service.delete_character(character.id, current_user=owner)
+
+    repo.delete.assert_awaited_once_with(character)
+
+
+@pytest.mark.asyncio
+async def test_delete_character_purges_memories_across_users() -> None:
+    owner = _build_user()
+    character = _build_character(creator_id=owner.id)
+    repo = CharacterRepository.__new__(CharacterRepository)
+    repo.get_by_id = AsyncMock(return_value=character)
+    repo.delete = AsyncMock()
+    memory_repo = SimpleNamespace(purge_character=AsyncMock(return_value=3))
+    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
+    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
+    service = CharacterService(
+        repo,
+        voice_repo,
+        gateway_repo,
+        memory_repo=memory_repo,
+    )
+
+    await service.delete_character(character.id, current_user=owner)
+
+    memory_repo.purge_character.assert_awaited_once_with(character_id=str(character.id))
+    repo.delete.assert_awaited_once_with(character)
+
+
+@pytest.mark.asyncio
+async def test_delete_character_survives_memory_purge_failure() -> None:
+    owner = _build_user()
+    character = _build_character(creator_id=owner.id)
+    repo = CharacterRepository.__new__(CharacterRepository)
+    repo.get_by_id = AsyncMock(return_value=character)
+    repo.delete = AsyncMock()
+    memory_repo = SimpleNamespace(
+        purge_character=AsyncMock(side_effect=RuntimeError("milvus down")),
+    )
+    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
+    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
+    service = CharacterService(
+        repo,
+        voice_repo,
+        gateway_repo,
+        memory_repo=memory_repo,
+    )
+
+    await service.delete_character(character.id, current_user=owner)
+
+    repo.delete.assert_awaited_once_with(character)
+    memory_repo.purge_character.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_character_rejects_non_creator() -> None:
+    owner = _build_user()
+    character = _build_character(creator_id=owner.id)
+    repo = CharacterRepository.__new__(CharacterRepository)
+    repo.get_by_id = AsyncMock(return_value=character)
+    repo.delete = AsyncMock()
+    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
+    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
+    service = CharacterService(repo, voice_repo, gateway_repo)
+
+    with pytest.raises(APIError) as exc:
+        await service.delete_character(character.id, current_user=_build_user())
+
+    assert exc.value.status_code == 403
+    assert exc.value.code == "character_modify_forbidden"
+    repo.delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delete_character_raises_404_for_missing_character() -> None:
+    repo = CharacterRepository.__new__(CharacterRepository)
+    repo.get_by_id = AsyncMock(return_value=None)
+    repo.delete = AsyncMock()
+    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
+    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
+    service = CharacterService(repo, voice_repo, gateway_repo)
+
+    with pytest.raises(APIError) as exc:
+        await service.delete_character(uuid.uuid4(), current_user=_build_user())
+
+    assert exc.value.status_code == 404
+    assert exc.value.code == "character_not_found"
+    repo.delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_unpublish_character_marks_character_as_unpublished() -> None:
     owner = _build_user()
     original = _build_character(creator_id=owner.id)
     unpublished = _build_character(
         character_id=original.id,
         creator_id=owner.id,
-        status=CharacterStatusType.UNPUBLISHED.value,
+        visibility=VisibilityType.PRIVATE.value,
     )
     unpublished.unpublished_at = datetime.now(UTC)
 
@@ -362,5 +484,5 @@ async def test_unpublish_character_marks_character_as_unpublished() -> None:
     result = await service.unpublish_character(original.id, current_user=owner)
 
     assert result.id == str(original.id)
-    assert result.status == CharacterStatusType.UNPUBLISHED.value
+    assert result.visibility == VisibilityType.PRIVATE.value
     repo.unpublish.assert_awaited_once_with(original)

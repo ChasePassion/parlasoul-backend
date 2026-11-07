@@ -15,6 +15,7 @@ from src.api.exceptions import register_exception_handlers
 from src.api.response import success_response
 from src.api.routers import (
     auth,
+    character_forge,
     characters,
     chats,
     discover,
@@ -173,6 +174,7 @@ def create_app() -> FastAPI:
     app.include_router(upload.router)
     app.include_router(memories.router)
     app.include_router(characters.router)
+    app.include_router(character_forge.router)
     app.include_router(discover.router)
     app.include_router(growth.router)
     app.include_router(chats.router)

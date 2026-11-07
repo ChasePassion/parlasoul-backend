@@ -263,6 +263,16 @@ def _new_event_id() -> str:
     return f"event_{uuid.uuid4().hex}"
 
 
+def _voice_profile_session_params(voice_profile: dict[str, Any] | None) -> dict[str, Any]:
+    """Map a stored character voice profile onto Qwen3-TTS session fields."""
+    if not voice_profile:
+        return {}
+    from src.core.voice_profiles import voice_profile_or_default
+
+    profile = voice_profile_or_default(voice_profile)
+    return profile.session_params()
+
+
 def _extract_stt_text(payload: dict[str, Any]) -> str:
     sentence = payload.get("sentence")
     if isinstance(sentence, dict):
@@ -1565,6 +1575,8 @@ class VoiceGatewayRepository:
         instructions: str | None = None,
         provider_voice_id: str | None = None,
         provider_model: str | None = None,
+        voice_profile: dict[str, Any] | None = None,
+        session_overrides: dict[str, Any] | None = None,
     ) -> AsyncGenerator[tuple[str, str], None]:
         api_key = self._require_api_key()
         if not text.strip():
@@ -1578,6 +1590,8 @@ class VoiceGatewayRepository:
             mime_type = "audio/opus"
         elif audio_format == "mp3":
             mime_type = "audio/mpeg"
+        elif audio_format == "wav":
+            mime_type = "audio/wav"
         elif audio_format == "pcm":
             mime_type = "audio/pcm;rate=24000"
         else:
@@ -1594,6 +1608,11 @@ class VoiceGatewayRepository:
         }
         if instructions and instructions.strip():
             session_payload["session"]["instructions"] = instructions.strip()
+        session_payload["session"].update(_voice_profile_session_params(voice_profile))
+        # The tuning console (tools/voice-tuner) explores the full provider range,
+        # which is wider than the per-character profile bounds applied above.
+        if session_overrides:
+            session_payload["session"].update(session_overrides)
 
         append_payload = {
             "event_id": _new_event_id(),
@@ -2024,6 +2043,7 @@ class VoiceGatewayRepository:
         instructions: str | None = None,
         provider_voice_id: str | None = None,
         provider_model: str | None = None,
+        voice_profile: dict[str, Any] | None = None,
         debug_capture: Any | None = None,
         segment_counter: list[int] | None = None,
     ) -> AsyncGenerator[tuple[str, str], None]:
@@ -2050,6 +2070,7 @@ class VoiceGatewayRepository:
         }
         if instructions and instructions.strip():
             session_payload["session"]["instructions"] = instructions.strip()
+        session_payload["session"].update(_voice_profile_session_params(voice_profile))
 
         tts_model = provider_model.strip() if provider_model and provider_model.strip() else self._tts_model
         ws_url = _append_or_replace_query_param(

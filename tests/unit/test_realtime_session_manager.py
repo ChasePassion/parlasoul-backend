@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.core.exceptions import APIError
-from src.db.models import CharacterStatusType
+from src.db.models import VisibilityType
 from src.realtime.session import manager as manager_module
 from src.realtime.session.manager import RealtimeSessionManager
 
@@ -66,7 +66,7 @@ def _build_inputs() -> tuple[SimpleNamespace, SimpleNamespace, SimpleNamespace]:
     current_user = SimpleNamespace(id=uuid.uuid4())
     character = SimpleNamespace(
         id=uuid.uuid4(),
-        status=CharacterStatusType.ACTIVE.value,
+        visibility=VisibilityType.PUBLIC.value,
     )
     chat = SimpleNamespace(
         id=uuid.uuid4(),
@@ -351,7 +351,7 @@ async def test_create_session_allows_creator_of_unpublished_character(
         settings=_fake_settings(),
     )
     current_user, chat, character = _build_inputs()
-    character.status = CharacterStatusType.UNPUBLISHED.value
+    character.visibility = VisibilityType.PRIVATE.value
     character.creator_id = current_user.id
 
     session, _ = await manager.create_session(
@@ -365,27 +365,3 @@ async def test_create_session_allows_creator_of_unpublished_character(
     await manager.close_session(session.session_id)
 
 
-@pytest.mark.asyncio
-async def test_create_session_rejects_non_creator_of_unpublished_character() -> None:
-    manager = RealtimeSessionManager(
-        dialog_service=object(),
-        turn_service=object(),
-        voice_runtime=object(),
-        ice_config_service=_FakeIceConfigService(),
-        vad_model=_FakeVADModel(),
-        settings=_fake_settings(),
-    )
-    current_user, chat, character = _build_inputs()
-    character.status = CharacterStatusType.UNPUBLISHED.value
-    character.creator_id = uuid.uuid4()
-
-    with pytest.raises(APIError) as exc:
-        await manager.create_session(
-            current_user=current_user,
-            chat=chat,
-            character=character,
-            offer={"type": "offer", "sdp": "fake-offer"},
-        )
-
-    assert exc.value.status_code == 409
-    assert exc.value.code == "resource_conflict"

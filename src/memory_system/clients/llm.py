@@ -253,6 +253,10 @@ class LLMClient:
         *,
         stream: bool,
         json_mode: bool = False,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
+        max_tokens: int | None = None,
+        extra_body_override: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "model": route.model,
@@ -263,7 +267,14 @@ class LLMClient:
             kwargs["stream_options"] = {"include_usage": True}
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice or "auto"
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
         extra_body = cls._provider_extra_body(route)
+        if extra_body_override:
+            extra_body.update(extra_body_override)
         if extra_body:
             kwargs["extra_body"] = extra_body
         return kwargs
@@ -544,8 +555,97 @@ class LLMClient:
         ):
             yield chunk
 
-    async def _chat_stream_async_messages_with_retries(
+    async def stream_chat_with_tools_async(
         self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]],
+        tool_choice: str = "auto",
+        max_tokens: int | None = None,
+        extra_body_override: dict[str, Any] | None = None,
+    ):
+        """Stream one assistant turn while surfacing OpenAI-style tool calls.
+
+        Yields ``{"type": "text", "text": ...}`` for content deltas and one
+        ``{"type": "tool_calls", "calls": [...]}`` event after the upstream
+        stream finishes. Tool-call arguments arrive as string fragments keyed by
+        ``index``; they are accumulated here so callers never re-assemble them.
+        """
+        last_error: Exception | None = None
+        last_route: _ModelRoute | None = None
+
+        for route in self._routes:
+            yielded_any = False
+            accumulator: dict[int, dict[str, Any]] = {}
+            try:
+                kwargs = self._chat_completion_request_kwargs(
+                    route,
+                    messages,
+                    stream=True,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    max_tokens=max_tokens,
+                    extra_body_override=extra_body_override,
+                )
+                response = await route.async_client.chat.completions.create(**kwargs)
+                async for chunk in response:
+                    usage_details = self._extract_usage_details(chunk)
+                    if usage_details:
+                        self._last_stream_usage_details = usage_details
+                        self._last_stream_cost_details = self._extract_cost_details(chunk)
+                        continue
+                    choices = getattr(chunk, "choices", None) or []
+                    delta = getattr(choices[0], "delta", None) if choices else None
+                    reasoning_text = None
+                    if delta is not None:
+                        reasoning_text = getattr(delta, "reasoning_content", None) or getattr(
+                            delta, "reasoning", None
+                        )
+                    if isinstance(reasoning_text, str) and reasoning_text:
+                        yielded_any = True
+                        yield {"type": "reasoning", "text": reasoning_text}
+                    content = self._extract_chunk_content(chunk)
+                    if content:
+                        yielded_any = True
+                        yield {"type": "text", "text": content}
+                    if not choices:
+                        continue
+                    tool_deltas = getattr(delta, "tool_calls", None) if delta else None
+                    for tool_delta in tool_deltas or []:
+                        index = getattr(tool_delta, "index", 0) or 0
+                        slot = accumulator.setdefault(
+                            index, {"id": "", "name": "", "arguments": ""}
+                        )
+                        call_id = getattr(tool_delta, "id", None)
+                        if call_id:
+                            slot["id"] = call_id
+                        function = getattr(tool_delta, "function", None)
+                        if function is None:
+                            continue
+                        name = getattr(function, "name", None)
+                        if name:
+                            slot["name"] = name
+                        arguments = getattr(function, "arguments", None)
+                        if arguments:
+                            slot["arguments"] += arguments
+                if accumulator:
+                    yield {
+                        "type": "tool_calls",
+                        "calls": [accumulator[index] for index in sorted(accumulator)],
+                    }
+                return
+            except Exception as exc:
+                if yielded_any:
+                    raise
+                last_error = exc
+                last_route = route
+        if last_error is not None:
+            if last_route is not None:
+                raise self._normalize_terminal_error(last_error, last_route)
+            raise last_error
+        raise RuntimeError("No LLM route configured")
+
+    async def _chat_stream_async_messages_with_retries(        self,
         messages: list[dict[str, Any]],
         *,
         retry_observer: LLMRetryObserver | None = None,

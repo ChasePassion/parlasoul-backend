@@ -53,7 +53,6 @@ def _to_character_response(
         llm_preset_id=character.llm_preset_id,
         creator_id=str(character.creator_id) if character.creator_id else None,
         creator_username=creator_username,
-        status=character.status,
         unpublished_at=character.unpublished_at,
         visibility=character.visibility,
         identifier=character.identifier,

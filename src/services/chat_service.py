@@ -25,7 +25,6 @@ from src.db.models import (
     AuthorType,
     Candidate,
     Character,
-    CharacterStatusType,
     Chat,
     ChatOriginType,
     ChatState,
@@ -51,7 +50,6 @@ from src.repositories.chat_repository import ChatRepository
 from src.repositories.memory_repository import MemoryRepository
 from src.repositories.turn_repository import TurnRepository
 from src.repositories.user_settings_repository import UserSettingsRepository
-from src.schemas.character import CharacterStatusEnum
 from src.schemas.chat import (
     CandidateResponse,
     CharacterBrief,
@@ -67,7 +65,6 @@ from src.schemas.chat import (
 from src.schemas.learning import CandidateExtra
 from src.schemas.media import MediaUploadKind
 from src.services.bg_tasks import spawn_bg_task
-from src.services.character_access_service import assert_character_chat_writable
 from src.services.character_llm_route_service import ResolvedCharacterLLMRoute
 from src.services.character_llm_service import CharacterLLMService
 from src.services.chat_generation_service import ChatGenerationContext, build_generation_messages
@@ -143,7 +140,6 @@ def _character_brief(
     creator_username: str | None = None,
     has_unread_proactive: bool = False,
 ) -> CharacterBrief:
-    status = getattr(c, "status", CharacterStatusType.ACTIVE.value)
     return CharacterBrief(
         id=str(c.id),
         name=c.name,
@@ -151,7 +147,6 @@ def _character_brief(
         greeting_message=c.greeting_message,
         avatar_image_key=c.avatar_image_key,
         avatar_urls=build_avatar_urls(c.avatar_image_key),
-        status=CharacterStatusEnum(status),
         unpublished_at=getattr(c, "unpublished_at", None),
         visibility=c.visibility,
         creator_id=str(c.creator_id) if c.creator_id else None,
@@ -466,22 +461,6 @@ def _turn_response(
     )
 
 
-def _assert_character_access(character: Character, user: User) -> None:
-    if character.visibility in (VisibilityType.PUBLIC.value, VisibilityType.PRIVATE.value):
-        return
-
-    is_creator = character.creator_id is not None and character.creator_id == user.id
-    if not is_creator:
-        raise APIError(
-            status_code=403,
-            code="character_private_forbidden",
-            message=(
-                "authorization failed: private character is not accessible; "
-                f"character_id={character.id}"
-            ),
-        )
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -573,23 +552,12 @@ class ChatService:
                 code="character_not_found",
                 message=f"resource not found: character does not exist; character_id={character_id}",
             )
-        if (
-            getattr(character, "status", CharacterStatusType.ACTIVE.value)
-            == CharacterStatusType.ACTIVE.value
-        ):
-            _assert_character_access(character, current_user)
-
-            async with self._uow.transactional():
-                await self._chat_repo.delete_empty_drafts(
-                    user_id=current_user.id,
-                    character_id=character.id,
-                    default_title=_CHAT_TITLE_DEFAULT,
-                )
-                chat = await self._chat_repo.get_recent_active(
-                    user_id=current_user.id,
-                    character_id=character.id,
-                )
-        else:
+        async with self._uow.transactional():
+            await self._chat_repo.delete_empty_drafts(
+                user_id=current_user.id,
+                character_id=character.id,
+                default_title=_CHAT_TITLE_DEFAULT,
+            )
             chat = await self._chat_repo.get_recent_active(
                 user_id=current_user.id,
                 character_id=character.id,
@@ -621,12 +589,6 @@ class ChatService:
                 code="character_not_found",
                 message=f"resource not found: character does not exist; character_id={character_id}",
             )
-        if (
-            getattr(character, "status", CharacterStatusType.ACTIVE.value)
-            == CharacterStatusType.ACTIVE.value
-        ):
-            _assert_character_access(character, current_user)
-
         cursor_sort_at: datetime | None = None
         cursor_chat_id: uuid.UUID | None = None
         if cursor:
@@ -740,8 +702,6 @@ class ChatService:
                     code="character_not_found",
                     message=f"resource not found: character does not exist; character_id={character_id}",
                 )
-            _assert_character_access(character, current_user)
-            assert_character_chat_writable(character, user_id=current_user.id)
 
             chat = Chat(
                 user_id=current_user.id,
@@ -823,7 +783,6 @@ class ChatService:
                 message="invalid request: proactive message content cannot be empty",
             )
 
-        assert_character_chat_writable(character, user_id=current_user.id)
         now = _now_utc()
 
         async with self._uow.transactional():
@@ -1389,6 +1348,7 @@ class ChatService:
                             provider_model=tts_provider_model,
                             voice_source_type=tts_voice_source_type
                             or prep.character.voice_source_type,
+                            voice_profile=prep.character.voice_profile,
                         ):
                             await tts_events_queue.put(event)
                     except APIError as exc:
@@ -2014,7 +1974,6 @@ class ChatService:
                     code="character_not_found",
                     message=f"resource not found: character does not exist; character_id={chat.character_id}",
                 )
-            assert_character_chat_writable(character, user_id=current_user.id)
             t_route = time.monotonic()
             resolved_llm_route = await self._character_llm_service.resolve_runtime_route(character)
             timing["prep_resolve_route"] = time.monotonic() - t_route

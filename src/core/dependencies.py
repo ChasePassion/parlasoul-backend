@@ -42,6 +42,7 @@ from src.repositories.proactive_character_preference_repository import (
     ProactiveCharacterPreferenceRepository,
 )
 from src.repositories.proactive_dispatch_repository import ProactiveDispatchRepository
+from src.repositories.realtime_telemetry_repository import RealtimeTelemetryRepository
 from src.repositories.saved_item_repository import SavedItemRepository
 from src.repositories.subscription_webhook_event_repository import (
     SubscriptionWebhookEventRepository,
@@ -67,7 +68,6 @@ from src.services.proactive_preference_service import ProactivePreferenceService
 from src.services.r2_storage_service import R2StorageService, get_r2_storage_service
 from src.services.realtime_telemetry_service import RealtimeTelemetryService
 from src.services.tts_gateway_service import TTSGatewayService
-from src.repositories.realtime_telemetry_repository import RealtimeTelemetryRepository
 
 logger = logging.getLogger(__name__)
 
@@ -610,6 +610,7 @@ def get_character_service(
     repo: CharacterRepository = Depends(get_character_repository),
     voice_profile_repo: VoiceProfileRepository = Depends(get_voice_profile_repository),
     voice_gateway_repo: VoiceGatewayRepository = Depends(get_voice_gateway_repository),
+    memory_repo: MemoryRepository = Depends(get_memory_repository),
     tts_registry: TTSRegistry = Depends(get_tts_registry),
     subscription_service=Depends(get_subscription_service),
 ):
@@ -620,8 +621,9 @@ def get_character_service(
         repo,
         voice_profile_repo,
         voice_gateway_repo,
-        tts_registry=tts_registry,
         subscription_service=subscription_service,
+        memory_repo=memory_repo,
+        tts_registry=tts_registry,
     )
 
 
@@ -746,6 +748,73 @@ def get_saved_item_service(
     return SavedItemService(repo, uow)
 
 
+def get_character_forge_repository(
+    db: AsyncSession = Depends(get_db),
+):
+    """Centralized provider for CharacterForgeRepository."""
+    from src.repositories.character_forge_repository import CharacterForgeRepository
+
+    return CharacterForgeRepository(db)
+
+
+def get_image_generation_repository():
+    """Centralized provider for the Qwen-Image client."""
+    from src.repositories.image_generation_repository import ImageGenerationRepository
+
+    return ImageGenerationRepository()
+
+
+def get_avatar_generation_service(
+    image_repository=Depends(get_image_generation_repository),
+    image_processor=Depends(get_image_processing_service_provider),
+    r2_storage=Depends(get_r2_storage_service_provider),
+):
+    """Centralized provider for AvatarGenerationService."""
+    from src.services.avatar_generation_service import AvatarGenerationService
+
+    return AvatarGenerationService(
+        image_repository=image_repository,
+        image_processor=image_processor,
+        r2_storage=r2_storage,
+    )
+
+
+def get_exa_repository():
+    """Centralized provider for the Exa search client."""
+    from src.repositories.exa_repository import ExaRepository
+
+    return ExaRepository()
+
+
+def get_character_forge_service(
+    repo=Depends(get_character_forge_repository),
+    character_service=Depends(get_character_service),
+    chat_service=Depends(get_chat_service),
+    llm_gateway_service: LLMGatewayService = Depends(get_llm_gateway_service),
+    tts_gateway_service: TTSGatewayService = Depends(get_tts_gateway_service),
+    avatar_service=Depends(get_avatar_generation_service),
+):
+    """Centralized provider for CharacterForgeService."""
+    from src.services.character_forge_service import CharacterForgeService
+    from src.services.character_forge_tools import ForgeToolExecutor
+
+    exa_repository = get_exa_repository()
+    return CharacterForgeService(
+        repo=repo,
+        tool_executor=ForgeToolExecutor(
+            character_service=character_service,
+            chat_service=chat_service,
+            exa_repository=exa_repository,
+            avatar_service=avatar_service,
+        ),
+        llm_gateway_service=llm_gateway_service,
+        tts_gateway_service=tts_gateway_service,
+        exa_repository=exa_repository,
+        character_service=character_service,
+        chat_service=chat_service,
+    )
+
+
 __all__ = [
     "bearer_scheme",
     "get_db",
@@ -807,4 +876,9 @@ __all__ = [
     "get_character_llm_route_service",
     "get_llm_gateway_repository",
     "get_character_llm_service",
+    "get_character_forge_repository",
+    "get_exa_repository",
+    "get_image_generation_repository",
+    "get_avatar_generation_service",
+    "get_character_forge_service",
 ]

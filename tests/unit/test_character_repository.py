@@ -22,5 +22,4 @@ async def test_list_market_orders_by_created_at_then_id() -> None:
     compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
 
     assert "characters.visibility = 'PUBLIC'" in compiled
-    assert "characters.status = 'ACTIVE'" in compiled
     assert "ORDER BY characters.created_at ASC, characters.id ASC" in compiled

@@ -21,7 +21,6 @@ from src.realtime.pipeline.turn_commit_gate import TurnCommitGateConfig
 from src.realtime.rtc.gateway import build_peer
 from src.realtime.session.metrics import RealtimeSessionMetricsSink
 from src.realtime.session.models import RealtimeSession, SessionConfig
-from src.services.character_access_service import assert_character_chat_writable
 
 logger = logging.getLogger(__name__)
 _SESSION_ID_PATTERN = re.compile(r"^rt_[0-9a-f]{16}$")
@@ -127,7 +126,6 @@ class RealtimeSessionManager:
                 code="resource_conflict",
                 message="resource conflict: chat and character mismatch",
             )
-        assert_character_chat_writable(character, user_id=current_user.id)
 
         resolved_session_id = session_id or self.generate_session_id()
         if not _SESSION_ID_PATTERN.fullmatch(resolved_session_id):

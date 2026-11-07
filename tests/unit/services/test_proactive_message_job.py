@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.db.models import Character, CharacterStatusType, ProactiveMessageDispatch, User, VisibilityType
+from src.db.models import Character, ProactiveMessageDispatch, User, VisibilityType
 from src.services.proactive_character_selector import SelectionResult
 from src.services.proactive_message_job import ProactiveMessageJob
 
@@ -36,7 +36,7 @@ def _character(character_id: uuid.UUID) -> Character:
         voice_model="speech-2.8-turbo",
         voice_provider_voice_id="voice-1",
         voice_source_type="system",
-        status=CharacterStatusType.ACTIVE.value,
+        status=VisibilityType.PUBLIC.value,
         visibility=VisibilityType.PUBLIC.value,
         creator_id=uuid.uuid4(),
         identifier=None,

@@ -7,7 +7,7 @@ import inspect
 import json
 import logging
 import threading
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from typing import Any, Literal, Protocol
 
 import anthropic
@@ -861,6 +861,140 @@ class LLMGatewayService:
                         output="".join(chunks),
                         usage_details=usage_details,
                         cost_details=cost_details,
+                    )
+                except asyncio.CancelledError:
+                    if not terminal_error_recorded:
+                        record_cancelled_generation(handle)
+                    raise
+                except Exception as exc:
+                    if not terminal_error_recorded:
+                        record_llm_failure(handle, exc)
+                    raise
+
+    async def stream_turn_with_tools(
+        self,
+        *,
+        route: ResolvedLLMRoute,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        operation: str,
+        route_role: str,
+        max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
+        first_chunk_timeout_s: float = _FIRST_CHUNK_TIMEOUT_SECONDS,
+        trace_context: dict[str, str] | None = None,
+        user_id: str | None = None,
+        chat_id: str | None = None,
+        character_id: str | None = None,
+        should_interrupt: Callable[[], bool] | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Stream one tool-aware assistant turn with the shared observability wrapper.
+
+        Emits ``{"type": "text"}`` and ``{"type": "tool_calls"}`` events; the
+        consumer owns tool execution and the loop.
+
+        ``should_interrupt`` is polled after each text/reasoning delta. Returning
+        ``True`` closes the upstream stream without emitting tool calls, which
+        lets a caller preempt a text-only generation (for example when the user
+        sends a guide message). Tool-call events are never cut off: when the
+        upstream has already produced them, they are yielded and the consumer
+        finishes the tool batch before acting on the interruption signal.
+        """
+        client = self.get_runtime_client(route, retry_policy="default")
+        request = self._build_call_request(
+            route=route,
+            operation=operation,
+            route_role=route_role,
+            input_payload={
+                "messages": messages,
+                "tools": [t.get("function", {}).get("name") for t in tools],
+            },
+            user_id=user_id,
+            chat_id=chat_id,
+            turn_id=None,
+            candidate_id=None,
+            character_id=character_id,
+        )
+
+        with observability_scope(
+            user_id=request.user_id,
+            session_id=request.session_id,
+            tags=list(request.tags),
+            metadata=request.metadata,
+        ):
+            handle = start_llm_generation(request, manual=True, trace_context=trace_context)
+            with bind_llm_generation_context(handle):
+                stream = client.stream_chat_with_tools_async(
+                    messages,
+                    tools=tools,
+                    max_tokens=max_tokens,
+                    extra_body_override=(
+                        {"reasoning_effort": reasoning_effort} if reasoning_effort else None
+                    ),
+                )
+                stream_iter = stream.__aiter__()
+                texts: list[str] = []
+                terminal_error_recorded = False
+                try:
+                    try:
+                        async with asyncio.timeout(first_chunk_timeout_s):
+                            first = await anext(stream_iter)
+                    except StopAsyncIteration:
+                        record_empty_generation(handle)
+                        return
+                    except TimeoutError as exc:
+                        await _close_async_iter_safely(stream_iter)
+                        record_timeout_generation(handle, first_chunk_timeout_s)
+                        terminal_error_recorded = True
+                        raise LLMFirstChunkTimeoutError(
+                            operation=operation,
+                            model=build_model_label(provider=route.provider, model=route.model),
+                            timeout_s=first_chunk_timeout_s,
+                        ) from exc
+                    except asyncio.CancelledError:
+                        await _close_async_iter_safely(stream_iter)
+                        record_cancelled_generation(handle)
+                        terminal_error_recorded = True
+                        raise
+                    except Exception as exc:
+                        await _close_async_iter_safely(stream_iter)
+                        record_llm_failure(handle, exc)
+                        terminal_error_recorded = True
+                        raise
+
+                    def interrupted(event: dict[str, Any]) -> bool:
+                        return (
+                            should_interrupt is not None
+                            and event.get("type") in ("text", "reasoning")
+                            and should_interrupt()
+                        )
+
+                    if first.get("type") == "text":
+                        mark_llm_stream_chunk(handle, first["text"])
+                        texts.append(first["text"])
+                    yield first
+                    if interrupted(first):
+                        await _close_async_iter_safely(stream_iter)
+                        record_cancelled_generation(handle)
+                        return
+
+                    async for event in stream_iter:
+                        if event.get("type") == "text":
+                            mark_llm_stream_chunk(handle, event["text"])
+                            texts.append(event["text"])
+                        yield event
+                        if interrupted(event):
+                            await _close_async_iter_safely(stream_iter)
+                            record_cancelled_generation(handle)
+                            return
+
+                    pop_usage = getattr(client, "pop_last_stream_usage_details", None)
+                    pop_cost = getattr(client, "pop_last_stream_cost_details", None)
+                    finish_llm_generation(
+                        handle,
+                        output="".join(texts),
+                        usage_details=pop_usage() if callable(pop_usage) else None,
+                        cost_details=pop_cost() if callable(pop_cost) else None,
                     )
                 except asyncio.CancelledError:
                     if not terminal_error_recorded:

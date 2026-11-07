@@ -226,6 +226,7 @@ class VoiceService:
         provider_voice_id: str | None = DEFAULT_SYSTEM_TTS_VOICE_ID
         provider_model: str | None = DEFAULT_SYSTEM_TTS_MODEL
         voice_source_type = VoiceSourceType.SYSTEM.value
+        voice_profile: dict[str, Any] | None = None
         if self._character_repo:
             _, _, chat = row
             character = await self._character_repo.get_by_id(chat.character_id)
@@ -234,6 +235,7 @@ class VoiceService:
                 provider_voice_id = character.voice_provider_voice_id
                 provider_model = character.voice_model
                 voice_source_type = character.voice_source_type
+                voice_profile = character.voice_profile
         source_stream = self._tts_gateway_service.stream_tts_audio_base64(
             text=candidate.content,
             audio_format=audio_format,
@@ -242,6 +244,7 @@ class VoiceService:
             provider_voice_id=provider_voice_id,
             provider_model=provider_model,
             voice_source_type=voice_source_type,
+            voice_profile=voice_profile,
         )
         first_chunk = await _next_decoded_audio_chunk(source_stream)
         if first_chunk is None:
@@ -282,6 +285,7 @@ class VoiceService:
         provider_voice_id: str | None = None,
         provider_model: str | None = None,
         voice_source_type: str = VoiceSourceType.SYSTEM.value,
+        voice_profile: dict[str, Any] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         seq = 0
         async for audio_b64, mime_type in self._tts_gateway_service.stream_tts_audio_base64(
@@ -292,6 +296,7 @@ class VoiceService:
             provider_voice_id=provider_voice_id,
             provider_model=provider_model,
             voice_source_type=voice_source_type,
+            voice_profile=voice_profile,
         ):
             seq += 1
             yield {
@@ -319,6 +324,7 @@ class VoiceService:
         provider_voice_id: str | None = None,
         provider_model: str | None = None,
         voice_source_type: str = VoiceSourceType.SYSTEM.value,
+        voice_profile: dict[str, Any] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         seq = 0
         async for (
@@ -332,6 +338,7 @@ class VoiceService:
             provider_voice_id=provider_voice_id,
             provider_model=provider_model,
             voice_source_type=voice_source_type,
+            voice_profile=voice_profile,
         ):
             seq += 1
             yield {
