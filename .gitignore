@@ -380,3 +380,6 @@ docs/realtime-voice-provider-migration.md
 
 # Uploaded media is runtime data, never source.
 static/uploads/
+
+# Local Milvus compose runtime data.
+tools/milvus-local/volumes/
