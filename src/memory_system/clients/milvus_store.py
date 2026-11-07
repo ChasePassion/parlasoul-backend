@@ -662,10 +662,6 @@ class MilvusStore:
         logger.info(f"Deleted {count} records from '{self._collection_name}'")
         return count
     
-    def flush(self, timeout: float | None = None) -> None:
-        """Flush pending writes so they are immediately queryable."""
-        self._client.flush(collection_name=self._collection_name, timeout=timeout)
-    
     def count(self, filter_expr: str = "") -> int:
         """Count records matching filter.
         
@@ -686,9 +682,3 @@ class MilvusStore:
             # Get collection stats
             stats = self._client.get_collection_stats(self._collection_name)
             return stats.get("row_count", 0)
-    
-    def drop_collection(self) -> None:
-        """Drop the collection (for testing/cleanup)."""
-        if self._client.has_collection(self._collection_name):
-            self._client.drop_collection(self._collection_name)
-            logger.info(f"Dropped collection '{self._collection_name}'")

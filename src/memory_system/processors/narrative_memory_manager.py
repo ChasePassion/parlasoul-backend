@@ -7,7 +7,7 @@ groups based on vector similarity and usage patterns.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -307,105 +307,3 @@ class NarrativeMemoryManager:
             )
 
         return {"group_deleted": group_deleted, "group_updated": group_updated}
-    
-    def delete_memory_from_group(
-        self,
-        memory_id: int,
-        user_id: str,
-        character_id: str
-    ) -> None:
-
-        """删除记忆时同步更新叙事组。
-        
-        Args:
-            memory_id: 要删除的记忆ID
-            user_id: 用户标识
-        """
-        try:
-            # 步骤1：查出group_id
-            res = self._store.query(
-                filter_expr=build_filter(
-                    user_id,
-                    character_id,
-                    f"id == {memory_id}"
-                ),
-                output_fields=["group_id"],
-            )
-
-            
-            if not res:
-                logger.warning(f"Memory {memory_id} not found for group cleanup")
-                return
-            
-            group_id = res[0]["group_id"]
-            group_deleted = False
-            group_updated = False
-            
-            # 步骤2：如有必要，更新或删除组
-            if group_id != -1:
-                cleanup = self.cleanup_group(
-                    user_id=user_id,
-                    character_id=character_id,
-                    group_id=group_id,
-                    exclude_memory_id=memory_id,
-                )
-                group_deleted = cleanup.get("group_deleted", False)
-                group_updated = cleanup.get("group_updated", False)
-            
-            logger.info(
-                "Narrative group cleanup completed: memory_id=%s group_id=%s deleted=%s updated=%s",
-                memory_id,
-                group_id,
-                group_deleted,
-                group_updated,
-            )
-                    
-        except Exception as e:
-            logger.error(f"Failed to cleanup group for memory {memory_id}: {e}")
-
-    def get_group_members(
-        self,
-        group_id: int,
-        user_id: str,
-        character_id: str
-    ) -> list[dict[str, Any]]:
-
-        """获取叙事组中的所有成员。
-        
-        Args:
-            group_id: 叙事组ID
-            user_id: 用户标识
-            
-        Returns:
-            组内所有记忆列表
-        """
-        try:
-            members_res = self._store.query(
-                filter_expr=build_filter(
-                    user_id,
-                    character_id,
-                    f"group_id == {group_id}"
-                ),
-                output_fields=[
-                    "id",
-                    "user_id",
-                    "character_id",
-                    "memory_type",
-                    "ts",
-                    "chat_id",
-                    "text",
-                    "group_id",
-                ],
-            )
-
-            
-            logger.info(
-                "Narrative group members loaded: group_id=%s members=%s",
-                group_id,
-                len(members_res),
-            )
-            return members_res
-            
-        except Exception as e:
-            logger.error(f"Failed to get members for group {group_id}: {e}")
-            return []
