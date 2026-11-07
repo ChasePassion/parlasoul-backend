@@ -103,9 +103,7 @@ def check_assertions(scenario: RealtimeScenario, events: list[SimEvent]) -> dict
     for assertion in scenario.assertions:
         target_offset = offsets.get(assertion.event)
         anchor_offset = offsets.get(assertion.anchor or "", 0)
-        if assertion.eventually:
-            ok = target_offset is not None
-        elif assertion.within_ms is None:
+        if assertion.eventually or assertion.within_ms is None:
             ok = target_offset is not None
         else:
             ok = (

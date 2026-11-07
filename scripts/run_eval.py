@@ -39,6 +39,7 @@ from src.evaluation.constants import (  # noqa: E402
     EXIT_INVALID_CONFIG_OR_DATASET,
     EXIT_OK,
     EXIT_PARTIAL_OR_FAILED,
+    MEMORY_TASK_TYPES,
     OOC_DIMENSION,
     RUNNER_VERSION,
 )
@@ -60,10 +61,6 @@ from src.services.chat_generation_service import ChatGenerationService  # noqa: 
 from src.services.llm_gateway_service import LLMGatewayService  # noqa: E402
 
 logger = logging.getLogger("parlasoul.eval")
-
-_MEMORY_TASK_PREFIXES = ("memory_recall", "memory_precision", "memory_update",
-                         "memory_temporal", "memory_faithfulness",
-                         "memory_abstention", "memory_ooc")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -170,7 +167,7 @@ async def run_case_pipeline(
         c for c in replay_cases
         if c.task_type.startswith("roleplay_") or c.task_type == "memory_utility_pair"
     ]
-    memory_cases = [c for c in replay_cases if c.task_type in _MEMORY_TASK_PREFIXES]
+    memory_cases = [c for c in replay_cases if c.task_type in MEMORY_TASK_TYPES]
 
     if not roleplay_cases and not memory_cases and not candidate_cases and not pairwise_cases:
         print(f"eval: no cases in split={split}; status=no_data")
@@ -443,9 +440,6 @@ def main(argv: list[str]) -> int:
         )
     except EvaluationError as exc:
         return _fail(exc.safe_message, EXIT_INVALID_CONFIG_OR_DATASET)
-
-    if args.content_mode == "full" and config.is_production:
-        return _fail("content_mode=full is rejected in production", EXIT_INVALID_CONFIG_OR_DATASET)
 
     if args.dimensions:
         requested = [d.strip() for d in args.dimensions.split(",") if d.strip()]

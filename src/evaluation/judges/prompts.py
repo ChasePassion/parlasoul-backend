@@ -8,7 +8,6 @@ DATASET_CONSTRUCTION_GUIDE.md §7.1.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from src.evaluation.datasets.fingerprints import sha256_text
@@ -233,21 +232,4 @@ def build_pairwise_user_message(
             "",
             f"Response 2: {response_2}",
         ]
-    )
-
-
-def build_memory_judge_user_message(
-    *,
-    memories: list[dict[str, Any]],
-    last_user: str,
-    last_assistant: str,
-) -> str:
-    """Memory faithfulness / usage style inputs (JSON body, blind IDs only)."""
-    return json.dumps(
-        {
-            "memories": memories,
-            "last_user": last_user,
-            "last_assistant": last_assistant,
-        },
-        ensure_ascii=False,
     )
