@@ -39,6 +39,20 @@ class NarrativeMemoryManager:
         self._store = milvus_store
         self._config = config
 
+    def _attach_memory_to_group(
+        self,
+        memory_id: int,
+        group_id: int,
+        user_id: str,
+        character_id: str,
+    ) -> bool:
+        return self._store.update_memory_group_id(
+            memory_id,
+            group_id,
+            user_id,
+            character_id,
+        )
+
     def assign_to_narrative_group(
         self,
         memory_ids: list[int],
@@ -147,13 +161,7 @@ class NarrativeMemoryManager:
                         continue
                     
                     # 更新memory的group_id
-                    updated = self._store.update_memory_group_id(
-                        memory_id,
-                        group_id,
-                        user_id,
-                        character_id
-                    )
-                    if not updated:
+                    if not self._attach_memory_to_group(memory_id, group_id, user_id, character_id):
                         logger.error(f"Failed to update memory {memory_id} group_id to {group_id}")
                         failed_ids.append(memory_id)
                         continue
@@ -175,13 +183,7 @@ class NarrativeMemoryManager:
                     group_id = int(group_id)
                     
                     # 1) 更新memories.group_id
-                    updated = self._store.update_memory_group_id(
-                        memory_id,
-                        group_id,
-                        user_id,
-                        character_id
-                    )
-                    if not updated:
+                    if not self._attach_memory_to_group(memory_id, group_id, user_id, character_id):
                         logger.error(f"Failed to update memory {memory_id} group_id to {group_id}")
                         failed_ids.append(memory_id)
                         continue
