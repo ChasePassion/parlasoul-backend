@@ -24,7 +24,7 @@ from src.db.models import (
     CharacterForgeSession,
     User,
 )
-from src.repositories.exa_repository import ExaRepository
+from src.repositories.deepseek_search_repository import DeepSeekSearchRepository
 from src.schemas.character import CharacterCreate, CharacterUpdate
 from src.schemas.media import MediaUploadKind
 from src.services.avatar_generation_service import AvatarGenerationService
@@ -290,7 +290,7 @@ def build_tool_schemas(
             "type": "function",
             "function": {
                 "name": "search_web",
-                "description": "用 Exa 做语义网络搜索，返回标题、URL 和摘要片段。",
+                "description": "用 DeepSeek 做网络搜索，返回标题、URL 和摘要片段。",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -426,12 +426,12 @@ class ForgeToolExecutor:
         *,
         character_service: CharacterService,
         chat_service: ChatService,
-        exa_repository: ExaRepository,
+        search_repository: DeepSeekSearchRepository,
         avatar_service: AvatarGenerationService,
     ):
         self._character_service = character_service
         self._chat_service = chat_service
-        self._exa = exa_repository
+        self._search = search_repository
         self._avatars = avatar_service
 
     async def execute(
@@ -780,9 +780,9 @@ class ForgeToolExecutor:
         context.search_calls.append(1)
         num_results = int(arguments.get("num_results") or 5)
         try:
-            results = await self._exa.search(query=query, num_results=num_results)
+            results = await self._search.search(query=query, num_results=num_results)
         except Exception as exc:
-            logger.warning("Exa search failed: %s", exc)
+            logger.warning("DeepSeek search failed: %s", exc)
             return ToolOutcome(
                 llm_result={
                     "ok": False,
@@ -807,9 +807,9 @@ class ForgeToolExecutor:
         url = str(arguments.get("url") or "").strip()
         context.search_calls.append(1)
         try:
-            page = await self._exa.get_contents(url=url)
+            page = await self._search.fetch_page(url=url)
         except Exception as exc:
-            logger.warning("Exa contents failed: %s", exc)
+            logger.warning("DeepSeek fetch failed: %s", exc)
             return ToolOutcome(
                 llm_result={
                     "ok": False,

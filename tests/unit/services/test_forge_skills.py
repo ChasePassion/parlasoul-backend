@@ -47,7 +47,7 @@ def _executor() -> ForgeToolExecutor:
     return ForgeToolExecutor(
         character_service=None,
         chat_service=None,
-        exa_repository=None,
+        search_repository=None,
         avatar_service=None,
     )
 
@@ -176,7 +176,7 @@ async def test_create_character_persists_and_returns_created_card():
     executor = ForgeToolExecutor(
         character_service=characters,
         chat_service=_FakeChatService(),
-        exa_repository=None,
+        search_repository=None,
         avatar_service=None,
     )
     context = ToolContext(
@@ -246,7 +246,7 @@ async def test_generate_avatar_passes_resolved_reference_images():
     executor = ForgeToolExecutor(
         character_service=None,
         chat_service=None,
-        exa_repository=None,
+        search_repository=None,
         avatar_service=avatars,
     )
     context = ToolContext(

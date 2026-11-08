@@ -376,10 +376,10 @@ class Settings(BaseSettings):
     DASHSCOPE_TTS_LANGUAGE_TYPE: str = "English"
 
     # Character forge (conversational character creation)
-    EXA_API_KEY: str | None = None
-    EXA_API_BASE: str = "https://api.exa.ai"
-    EXA_TIMEOUT_SECONDS: float = 20.0
-    EXA_PROXY: str | None = None
+    DEEPSEEK_SEARCH_API_KEY: str | None = None
+    DEEPSEEK_SEARCH_API_BASE: str = "https://api.deepseek.com"
+    DEEPSEEK_SEARCH_TIMEOUT_SECONDS: float = 20.0
+    DEEPSEEK_SEARCH_PROXY: str | None = None
     CHARACTER_FORGE_MAX_STEPS: int = 5
     CHARACTER_FORGE_MAX_SEARCH_CALLS: int = 4
     CHARACTER_FORGE_MAX_OUTPUT_TOKENS: int = 32768
