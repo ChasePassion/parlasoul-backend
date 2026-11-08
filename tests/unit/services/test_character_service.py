@@ -464,3 +464,91 @@ async def test_unpublish_character_marks_character_as_unpublished() -> None:
     assert result.id == str(original.id)
     assert result.visibility == VisibilityType.PRIVATE.value
     repo.unpublish.assert_awaited_once_with(original)
+
+
+def _build_voice_selectable_repo_mock() -> tuple[CharacterRepository, VoiceProfileRepository]:
+    repo = CharacterRepository.__new__(CharacterRepository)
+    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
+    voice_repo.get_ready_clone_by_owner_and_provider_voice = AsyncMock(return_value=None)
+    return repo, voice_repo
+
+
+@pytest.mark.asyncio
+async def test_create_character_accepts_extended_dashscope_system_voice() -> None:
+    user = _build_user()
+    repo, voice_repo = _build_voice_selectable_repo_mock()
+    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
+
+    async def create_side_effect(character: Character) -> Character:
+        character.id = uuid.uuid4()
+        return character
+
+    repo.create = AsyncMock(side_effect=create_side_effect)
+    service = CharacterService(repo, voice_repo, gateway_repo)
+    payload = CharacterCreate(
+        name="阿清",
+        description="粤语陪练",
+        system_prompt="C" * 200,
+        voice_provider_voice_id="Kiki",
+    )
+
+    result = await service.create_character(payload, user)
+
+    created_arg = repo.create.await_args.args[0]
+    assert created_arg.voice_provider_voice_id == "Kiki"
+    assert result.voice is not None
+    assert result.voice.display_name == "Kiki"
+    assert result.voice.preview_audio_url is None
+    assert result.voice.avatar_image_key is None
+
+
+@pytest.mark.asyncio
+async def test_create_character_rejects_voice_outside_official_catalog() -> None:
+    user = _build_user()
+    repo, voice_repo = _build_voice_selectable_repo_mock()
+    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
+    repo.create = AsyncMock()
+    service = CharacterService(repo, voice_repo, gateway_repo)
+    payload = CharacterCreate(
+        name="A",
+        description="B",
+        system_prompt="C" * 200,
+        voice_provider_voice_id="NotARealVoice",
+    )
+
+    with pytest.raises(APIError) as exc:
+        await service.create_character(payload, user)
+
+    assert exc.value.status_code == 404
+    assert exc.value.code == "voice_not_found"
+    repo.create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_character_binds_extended_dashscope_system_voice() -> None:
+    owner = _build_user()
+    original = _build_character(creator_id=owner.id)
+    updated = _build_character(character_id=original.id, creator_id=owner.id)
+    updated.voice_provider_voice_id = "Kiki"
+
+    repo = CharacterRepository.__new__(CharacterRepository)
+    repo.get_by_id = AsyncMock(return_value=original)
+    repo.update = AsyncMock(return_value=updated)
+    repo.count_distinct_users_by_character = AsyncMock(return_value=0)
+    _, voice_repo = _build_voice_selectable_repo_mock()
+    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
+    service = CharacterService(repo, voice_repo, gateway_repo)
+
+    payload = CharacterUpdate(
+        voice_provider=DEFAULT_SYSTEM_TTS_PROVIDER,
+        voice_model=DEFAULT_SYSTEM_TTS_MODEL,
+        voice_provider_voice_id="Kiki",
+        voice_source_type="system",
+    )
+    result = await service.update_character(original.id, character_in=payload, current_user=owner)
+
+    update_data = repo.update.await_args.args[1]
+    assert update_data["voice_provider_voice_id"] == "Kiki"
+    assert result.voice is not None
+    assert result.voice.display_name == "Kiki"
+    assert result.voice.preview_audio_url is None

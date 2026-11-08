@@ -242,6 +242,180 @@ _DASHSCOPE_LEGACY_VOICES: tuple[dict[str, str | None], ...] = (
     },
 )
 
+# Official Qwen3-TTS voices published after the legacy integration snapshot.
+# They have no avatar or preview audio assets; only the character-forge agent
+# selects from them, so those fields stay unset.
+_DASHSCOPE_EXTENDED_VOICES: tuple[dict[str, str | None], ...] = (
+    {
+        "provider_voice_id": "Katerina",
+        "display_name": "Katerina",
+        "usage_hint": "御姐音色",
+        "language": "Multilingual",
+        "gender": "Female",
+    },
+    {
+        "provider_voice_id": "Sonrisa",
+        "display_name": "Sonrisa",
+        "usage_hint": "热情开朗的拉美大姐",
+        "language": "Multilingual",
+        "gender": "Female",
+    },
+    {
+        "provider_voice_id": "Sohee",
+        "display_name": "Sohee",
+        "usage_hint": "温柔开朗的韩国欧尼",
+        "language": "Multilingual",
+        "gender": "Female",
+    },
+    {
+        "provider_voice_id": "Ono Anna",
+        "display_name": "Ono Anna",
+        "usage_hint": "鬼灵精怪的青梅竹马",
+        "language": "Multilingual",
+        "gender": "Female",
+    },
+    {
+        "provider_voice_id": "Jennifer",
+        "display_name": "Jennifer",
+        "usage_hint": "品牌级、电影质感般的美语女声",
+        "language": "English",
+        "gender": "Female",
+    },
+    {
+        "provider_voice_id": "Ryan",
+        "display_name": "Ryan",
+        "usage_hint": "戏感炸裂、张力十足",
+        "language": "Multilingual",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Aiden",
+        "display_name": "Aiden",
+        "usage_hint": "美语大男孩",
+        "language": "Multilingual",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Alek",
+        "display_name": "Alek",
+        "usage_hint": "俄式冷峻与温暖",
+        "language": "Multilingual",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Dolce",
+        "display_name": "Dolce",
+        "usage_hint": "慵懒的意大利大叔",
+        "language": "Multilingual",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Lenn",
+        "display_name": "Lenn",
+        "usage_hint": "德国青年、理性带叛逆",
+        "language": "Multilingual",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Emilien",
+        "display_name": "Emilien",
+        "usage_hint": "浪漫的法国大哥哥",
+        "language": "Multilingual",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Andre",
+        "display_name": "Andre",
+        "usage_hint": "磁性、沉稳",
+        "language": "Multilingual",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Bodega",
+        "display_name": "Bodega",
+        "usage_hint": "热情的西班牙大叔",
+        "language": "Multilingual",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Radio Gol",
+        "display_name": "Radio Gol",
+        "usage_hint": "足球解说诗人",
+        "language": "Multilingual",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Jada",
+        "display_name": "Jada",
+        "usage_hint": "上海话女声",
+        "language": "Shanghainese",
+        "gender": "Female",
+    },
+    {
+        "provider_voice_id": "Dylan",
+        "display_name": "Dylan",
+        "usage_hint": "北京话男声",
+        "language": "Beijing dialect",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Li",
+        "display_name": "Li",
+        "usage_hint": "南京话男声",
+        "language": "Nanjing dialect",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Marcus",
+        "display_name": "Marcus",
+        "usage_hint": "陕西话男声",
+        "language": "Shaanxi dialect",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Roy",
+        "display_name": "Roy",
+        "usage_hint": "闽南语男声",
+        "language": "Minnan (Hokkien)",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Peter",
+        "display_name": "Peter",
+        "usage_hint": "天津话男声",
+        "language": "Tianjin dialect",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Sunny",
+        "display_name": "Sunny",
+        "usage_hint": "四川话女声",
+        "language": "Sichuanese",
+        "gender": "Female",
+    },
+    {
+        "provider_voice_id": "Eric",
+        "display_name": "Eric",
+        "usage_hint": "四川话男声",
+        "language": "Sichuanese",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Rocky",
+        "display_name": "Rocky",
+        "usage_hint": "粤语男声",
+        "language": "Cantonese",
+        "gender": "Male",
+    },
+    {
+        "provider_voice_id": "Kiki",
+        "display_name": "Kiki",
+        "usage_hint": "粤语女声",
+        "language": "Cantonese",
+        "gender": "Female",
+    },
+)
+
 DASHSCOPE_REMOVED_SYSTEM_VOICE_IDS = frozenset({"Mochi", "Bellona", "Neil", "Arthur", "Pip"})
 
 _MINIMAX_VOICE_ID_BY_DASHSCOPE_ID = {
@@ -314,6 +488,48 @@ def dashscope_legacy_voice_catalog(
     )
 
 
+def dashscope_full_voice_catalog(
+    *, provider_model: str = DEFAULT_DASHSCOPE_TTS_MODEL
+) -> tuple[SystemVoiceCatalogItem, ...]:
+    """Every officially supported DashScope system voice, including the legacy
+    ids hidden from the manual catalog and the post-integration additions.
+
+    The character-forge agent selects from this catalog; the manual UI keeps
+    using :func:`dashscope_legacy_voice_catalog`.
+    """
+    legacy_items = dashscope_legacy_voice_catalog(provider_model=provider_model)
+    reinstated = (
+        SystemVoiceCatalogItem(
+            provider="dashscope",
+            provider_model=provider_model,
+            provider_voice_id=str(item["provider_voice_id"]),
+            display_name=str(item["display_name"]),
+            usage_hint=item.get("usage_hint"),
+            language=item.get("language"),
+            gender=item.get("gender"),
+            avatar_image_key=item.get("avatar_image_key"),
+            preview_audio_filename=f"{item['provider_voice_id']}.mp3",
+        )
+        for item in _DASHSCOPE_LEGACY_VOICES
+        if str(item["provider_voice_id"]) in DASHSCOPE_REMOVED_SYSTEM_VOICE_IDS
+    )
+    extended = (
+        SystemVoiceCatalogItem(
+            provider="dashscope",
+            provider_model=provider_model,
+            provider_voice_id=str(item["provider_voice_id"]),
+            display_name=str(item["display_name"]),
+            usage_hint=item.get("usage_hint"),
+            language=item.get("language"),
+            gender=item.get("gender"),
+            avatar_image_key=item.get("avatar_image_key"),
+            preview_audio_filename=item.get("preview_audio_filename"),
+        )
+        for item in _DASHSCOPE_EXTENDED_VOICES
+    )
+    return tuple([*legacy_items, *reinstated, *extended])
+
+
 def minimax_system_voice_catalog(
     *, provider_model: str = DEFAULT_MINIMAX_TTS_MODEL
 ) -> tuple[SystemVoiceCatalogItem, ...]:
@@ -349,6 +565,7 @@ __all__ = [
     "DEFAULT_MINIMAX_TTS_MODEL",
     "DEFAULT_TTS_SYSTEM_PROVIDER",
     "SystemVoiceCatalogItem",
+    "dashscope_full_voice_catalog",
     "dashscope_legacy_voice_catalog",
     "legacy_dashscope_voice_id_for_minimax",
     "minimax_system_voice_catalog",

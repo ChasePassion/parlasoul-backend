@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.core.tts_voice_catalog import dashscope_legacy_voice_catalog
+from src.core.tts_voice_catalog import dashscope_full_voice_catalog
 from src.core.voice_profiles import (
     PITCH_PRESETS,
     SPEECH_RATE_PRESETS,
@@ -56,11 +56,11 @@ def _parse_frontmatter(text: str, path: Path) -> tuple[dict[str, str], str]:
 
 
 def _voice_table() -> str:
-    rows = ["| voice_id | 名称 | 气质 | 性别 |", "|---|---|---|---|"]
-    for item in dashscope_legacy_voice_catalog():
+    rows = ["| voice_id | 名称 | 气质 | 性别 | 语言 |", "|---|---|---|---|---|"]
+    for item in dashscope_full_voice_catalog():
         rows.append(
             f"| {item.provider_voice_id} | {item.display_name} | "
-            f"{item.usage_hint or ''} | {item.gender or ''} |"
+            f"{item.usage_hint or ''} | {item.gender or ''} | {item.language or ''} |"
         )
     return "\n".join(rows)
 

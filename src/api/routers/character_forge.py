@@ -187,15 +187,16 @@ async def steer_reply(
     return success_response(data, status_code=200)
 
 
-@router.get("/voice-previews/{preview_id}/audio")
+@router.get("/voice-previews/{session_id}/{preview_id}/audio")
 async def stream_voice_preview(
+    session_id: uuid.UUID,
     preview_id: str,
     format: str = Query("mp3", pattern="^(mp3|pcm|opus)$"),
     current_user: User = Depends(deps.get_current_user),
     service: CharacterForgeService = Depends(get_character_forge_service),
 ) -> Response:
     mime_type, audio_stream = await service.render_preview_audio(
-        current_user, preview_id, format
+        current_user, session_id, preview_id, format
     )
 
     async def body():
