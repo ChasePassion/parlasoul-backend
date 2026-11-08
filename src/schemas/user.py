@@ -21,6 +21,7 @@ class UserProfileResponse(SQLModel):
     username: str | None = None
     email_verified: bool
     avatar_image_key: str | None = None
+    avatar_url: str | None = None
     avatar_urls: AvatarUrls | None = None
     created_at: datetime
     last_login_at: datetime | None = None
@@ -32,6 +33,7 @@ class UserProfileUpdate(SQLModel):
 
     username: str | None = Field(None, min_length=2, max_length=50)
     avatar_image_key: str | None = None
+    avatar_url: str | None = None
 
 
 class OnboardingStatusUpdate(SQLModel):

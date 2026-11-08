@@ -56,7 +56,8 @@ async def update_my_profile(
 ) -> JSONResponse:
     """Update current user's profile.
 
-    Allows updating username and avatar_image_key. At least one field must be provided.
+    Allows updating username, avatar_image_key or avatar_url (preset avatar).
+    At least one field must be provided; the two avatar fields are mutually exclusive.
     """
     data = await service.update_my_profile(profile, current_user=current_user)
     return success_response(data, status_code=200)

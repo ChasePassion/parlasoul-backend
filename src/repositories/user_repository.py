@@ -51,11 +51,16 @@ class UserRepository:
         *,
         username: str | None,
         avatar_image_key: str | None,
+        avatar_url: str | None = None,
     ) -> User:
         if username is not None:
             user.username = username
         if avatar_image_key is not None:
             user.avatar_image_key = avatar_image_key
+            user.avatar_url = None
+        if avatar_url is not None:
+            user.avatar_url = avatar_url
+            user.avatar_image_key = None
 
         await self._db.commit()
         await self._db.refresh(user)

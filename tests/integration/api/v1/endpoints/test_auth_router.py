@@ -44,4 +44,4 @@ def test_read_users_me_returns_profile() -> None:
     assert body["data"]["email"] == "viewer@example.com"
     assert body["data"]["username"] == "viewer"
     assert body["data"]["email_verified"] is True
-    assert "avatar_url" not in body["data"]
+    assert body["data"]["avatar_url"] == "https://example.com/avatar.png"
