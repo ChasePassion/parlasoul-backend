@@ -24,6 +24,7 @@ async def read_users_me(
             "username": current_user.username,
             "email_verified": current_user.email_verified,
             "avatar_image_key": current_user.avatar_image_key,
+            "avatar_url": current_user.avatar_url,
             "avatar_urls": build_avatar_urls(current_user.avatar_image_key),
             "created_at": current_user.created_at,
             "last_login_at": current_user.last_login_at,

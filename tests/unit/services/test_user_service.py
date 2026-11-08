@@ -5,7 +5,9 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
+from src.core.error_codes import ErrorCode
 from src.core.exceptions import APIError
 from src.db.models import Character, User, VisibilityType
 from src.repositories.user_repository import UserRepository
@@ -95,6 +97,80 @@ async def test_update_my_profile_delegates_to_repository() -> None:
     assert result.username == "new_name"
     assert result.avatar_image_key == f"images/avatars/users/{user.id}/new-image"
     repo.update_profile.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_update_my_profile_accepts_preset_avatar_url() -> None:
+    user = _build_user()
+    updated_user = _build_user(user.id)
+    updated_user.avatar_image_key = None
+    updated_user.avatar_url = "/avatars/default/avatar-03.webp"
+
+    repo = UserRepository.__new__(UserRepository)
+    repo.update_profile = _AwaitableSpy(result=updated_user)
+    service = UserService(repo, _build_character_repo())
+
+    result = await service.update_my_profile(
+        UserProfileUpdate(avatar_url="/avatars/default/avatar-03.webp"),
+        current_user=user,
+    )
+
+    assert result.avatar_url == "/avatars/default/avatar-03.webp"
+    assert repo.update_profile.await_args.kwargs["avatar_url"] == "/avatars/default/avatar-03.webp"
+
+
+@pytest.mark.asyncio
+async def test_update_my_profile_rejects_non_preset_avatar_url() -> None:
+    repo = UserRepository.__new__(UserRepository)
+    repo.update_profile = _AwaitableSpy()
+    service = UserService(repo, _build_character_repo())
+
+    with pytest.raises(APIError) as exc:
+        await service.update_my_profile(
+            UserProfileUpdate(avatar_url="https://example.com/avatar.webp"),
+            current_user=_build_user(),
+        )
+
+    assert exc.value.status_code == 422
+    repo.update_profile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_update_my_profile_rejects_both_avatar_fields() -> None:
+    repo = UserRepository.__new__(UserRepository)
+    repo.update_profile = _AwaitableSpy()
+    service = UserService(repo, _build_character_repo())
+
+    with pytest.raises(APIError) as exc:
+        await service.update_my_profile(
+            UserProfileUpdate(
+                avatar_image_key="images/avatars/users/uid/image",
+                avatar_url="/avatars/default/avatar-03.webp",
+            ),
+            current_user=_build_user(),
+        )
+
+    assert exc.value.status_code == 422
+    repo.update_profile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_update_my_profile_maps_duplicate_username_to_conflict() -> None:
+    async def _raise_integrity_error(*_args, **_kwargs):
+        raise IntegrityError("UPDATE users SET username = $1", {}, Exception("duplicate key"))
+
+    repo = UserRepository.__new__(UserRepository)
+    repo.update_profile = _raise_integrity_error
+    service = UserService(repo, _build_character_repo())
+
+    with pytest.raises(APIError) as exc:
+        await service.update_my_profile(
+            UserProfileUpdate(username="new_name"),
+            current_user=_build_user(),
+        )
+
+    assert exc.value.status_code == 409
+    assert exc.value.code == ErrorCode.RESOURCE_CONFLICT
 
 
 @pytest.mark.asyncio

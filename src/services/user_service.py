@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
+
 from src.core.error_codes import ErrorCode
 from src.core.exceptions import APIError
 from src.db.models import Character, User
@@ -18,6 +20,25 @@ from src.services.media_url_service import (
 )
 
 
+PRESET_AVATAR_URL_PREFIX = "/avatars/default/"
+
+
+def _normalize_preset_avatar_url(value: str) -> str:
+    """预设头像只允许引用前端 public 目录里的静态资源。"""
+    normalized = value.strip()
+    if (
+        not normalized.startswith(PRESET_AVATAR_URL_PREFIX)
+        or ".." in normalized.split("/")
+        or not normalized.endswith(".webp")
+    ):
+        raise APIError(
+            status_code=422,
+            code=ErrorCode.VALIDATION_FAILED,
+            message="validation failed: avatar_url must be a preset avatar under /avatars/default/",
+        )
+    return normalized
+
+
 def _to_profile_response(user: User) -> UserProfileResponse:
     return UserProfileResponse(
         id=str(user.id),
@@ -25,6 +46,7 @@ def _to_profile_response(user: User) -> UserProfileResponse:
         username=user.username,
         email_verified=user.email_verified,
         avatar_image_key=user.avatar_image_key,
+        avatar_url=user.avatar_url,
         avatar_urls=build_avatar_urls(user.avatar_image_key),
         created_at=user.created_at,
         last_login_at=user.last_login_at,
@@ -80,11 +102,22 @@ class UserService:
         *,
         current_user: User,
     ) -> UserProfileResponse:
-        if profile.username is None and profile.avatar_image_key is None:
+        if (
+            profile.username is None
+            and profile.avatar_image_key is None
+            and profile.avatar_url is None
+        ):
             raise APIError(
                 status_code=400,
                 code="user_profile_update_empty",
-                message="invalid request: at least one field is required; fields=username,avatar_image_key",
+                message="invalid request: at least one field is required; fields=username,avatar_image_key,avatar_url",
+            )
+
+        if profile.avatar_image_key is not None and profile.avatar_url is not None:
+            raise APIError(
+                status_code=422,
+                code=ErrorCode.VALIDATION_FAILED,
+                message="validation failed: avatar_image_key and avatar_url are mutually exclusive",
             )
 
         avatar_image_key = profile.avatar_image_key
@@ -100,11 +133,26 @@ class UserService:
                     code=ErrorCode.VALIDATION_FAILED,
                     message="validation failed: avatar image key is not owned by current user",
                 )
-        updated = await self._user_repo.update_profile(
-            current_user,
-            username=profile.username,
-            avatar_image_key=avatar_image_key,
+
+        avatar_url = (
+            _normalize_preset_avatar_url(profile.avatar_url)
+            if profile.avatar_url is not None
+            else None
         )
+
+        try:
+            updated = await self._user_repo.update_profile(
+                current_user,
+                username=profile.username,
+                avatar_image_key=avatar_image_key,
+                avatar_url=avatar_url,
+            )
+        except IntegrityError as exc:
+            raise APIError(
+                status_code=409,
+                code=ErrorCode.RESOURCE_CONFLICT,
+                message="conflict: username is already taken",
+            ) from exc
         return _to_profile_response(updated)
 
     async def update_onboarding_status(
