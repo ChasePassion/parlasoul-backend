@@ -38,6 +38,7 @@ def _build(session: CharacterForgeSession):
         llm_gateway_service=SimpleNamespace(),
         tts_gateway_service=SimpleNamespace(),
         search_repository=SimpleNamespace(),
+        preview_store=SimpleNamespace(),
         character_service=SimpleNamespace(),
         chat_service=SimpleNamespace(),
     )

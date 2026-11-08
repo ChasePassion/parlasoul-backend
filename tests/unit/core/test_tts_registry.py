@@ -84,6 +84,35 @@ def test_dashscope_legacy_catalog_keeps_removed_voices_hidden() -> None:
     assert DASHSCOPE_REMOVED_SYSTEM_VOICE_IDS.isdisjoint(provider_voice_ids)
 
 
+def test_dashscope_full_catalog_is_superset_with_all_official_voices() -> None:
+    full = _registry().list_system_voices(provider="dashscope", model=None, catalog="full")
+    legacy = _registry().list_system_voices(provider="dashscope", model=None)
+
+    full_by_id = {item["provider_voice_id"]: item for item in full}
+    legacy_ids = {item["provider_voice_id"] for item in legacy}
+
+    assert len(full_by_id) == len(full) == 48
+    assert set(full_by_id) > legacy_ids
+    assert DASHSCOPE_REMOVED_SYSTEM_VOICE_IDS <= set(full_by_id)
+    assert {"Jennifer", "Ryan", "Radio Gol", "Ono Anna", "Kiki"} <= set(full_by_id)
+    assert full_by_id["Mochi"]["preview_audio_url"] == (
+        "/media/voices/preview/dashscope/Mochi.mp3"
+    )
+    assert full_by_id["Kiki"]["preview_audio_url"] is None
+    assert full_by_id["Kiki"]["avatar_image_key"] is None
+    assert full_by_id["Cherry"] == next(
+        item for item in legacy if item["provider_voice_id"] == "Cherry"
+    )
+
+
+def test_minimax_listing_ignores_full_catalog_flag() -> None:
+    voices = _registry().list_system_voices(provider="minimax", model=None, catalog="full")
+
+    provider_voice_ids = {item["provider_voice_id"] for item in voices}
+    assert len(provider_voice_ids) == 19
+    assert "Kiki" not in provider_voice_ids
+
+
 def test_minimax_voice_can_map_back_to_dashscope_for_realtime_voice_calls() -> None:
     assert legacy_dashscope_voice_id_for_minimax("Chinese_Mandarin_Warm_Girl") == "Bella"
 

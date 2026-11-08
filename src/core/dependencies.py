@@ -786,6 +786,13 @@ def get_deepseek_search_repository():
     return DeepSeekSearchRepository()
 
 
+def get_forge_preview_store():
+    """Centralized provider for the Redis-backed voice preview store."""
+    from src.services.forge_preview_store import ForgePreviewStore
+
+    return ForgePreviewStore()
+
+
 def get_character_forge_service(
     repo=Depends(get_character_forge_repository),
     character_service=Depends(get_character_service),
@@ -799,17 +806,20 @@ def get_character_forge_service(
     from src.services.character_forge_tools import ForgeToolExecutor
 
     search_repository = get_deepseek_search_repository()
+    preview_store = get_forge_preview_store()
     return CharacterForgeService(
         repo=repo,
         tool_executor=ForgeToolExecutor(
             character_service=character_service,
             chat_service=chat_service,
             search_repository=search_repository,
+            preview_store=preview_store,
             avatar_service=avatar_service,
         ),
         llm_gateway_service=llm_gateway_service,
         tts_gateway_service=tts_gateway_service,
         search_repository=search_repository,
+        preview_store=preview_store,
         character_service=character_service,
         chat_service=chat_service,
     )
@@ -878,6 +888,7 @@ __all__ = [
     "get_character_llm_service",
     "get_character_forge_repository",
     "get_deepseek_search_repository",
+    "get_forge_preview_store",
     "get_image_generation_repository",
     "get_avatar_generation_service",
     "get_character_forge_service",

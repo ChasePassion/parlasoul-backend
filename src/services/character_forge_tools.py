@@ -1,13 +1,8 @@
-"""Tool schemas, preview tokens and execution for the character-forge agent."""
+"""Tool schemas and execution for the character-forge agent."""
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
-import json
 import logging
-import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,7 +12,7 @@ from pydantic import ValidationError
 from src.core.config import settings
 from src.core.exceptions import APIError
 from src.core.tts_registry import DEFAULT_SYSTEM_TTS_PROVIDER
-from src.core.tts_voice_catalog import dashscope_legacy_voice_catalog
+from src.core.tts_voice_catalog import dashscope_full_voice_catalog
 from src.core.voice_profiles import normalize_voice_profile
 from src.db.models import (
     CharacterForgeMessage,
@@ -30,6 +25,7 @@ from src.schemas.media import MediaUploadKind
 from src.services.avatar_generation_service import AvatarGenerationService
 from src.services.character_service import CharacterService
 from src.services.chat_service import ChatService
+from src.services.forge_preview_store import ForgePreviewStore
 from src.services.forge_skills import SKILL_NAMES, load_forge_skill
 from src.services.media_url_service import (
     build_r2_public_url,
@@ -39,12 +35,11 @@ from src.services.media_url_service import (
 
 logger = logging.getLogger(__name__)
 
-_PREVIEW_TTL_SECONDS = 60 * 60 * 6
 _MAX_SAMPLE_CHARS = 200
 _MIN_SAMPLE_CHARS = 10
 _MAX_REFERENCE_IMAGES = 3
 
-VOICE_CATALOG = {item.provider_voice_id: item for item in dashscope_legacy_voice_catalog()}
+VOICE_CATALOG = {item.provider_voice_id: item for item in dashscope_full_voice_catalog()}
 
 
 def _voice_ids() -> list[str]:
@@ -88,10 +83,43 @@ def collect_reference_images(
     return dict(list(images.items())[-_MAX_REFERENCE_IMAGES:])
 
 
+def _voice_binding_properties(voice_id_schema: dict[str, Any]) -> dict[str, Any]:
+    """Schema of the voice fields a character tool call carries.
+
+    These are the values the agent already chose for the audition, so the
+    server can check every one of them instead of trusting a signed blob.
+    """
+    return {
+        "voice_base_id": {
+            **voice_id_schema,
+            "description": "基础音色 id，取试听时选定的那个",
+        },
+        "voice_speech_rate": {
+            "type": "number",
+            "minimum": 0.75,
+            "maximum": 1.35,
+            "description": "语速。0.88 慢条斯理 / 0.95 从容 / 1.0 正常 / 1.08 利落 / 1.18 急促",
+        },
+        "voice_volume": {
+            "type": "integer",
+            "minimum": 20,
+            "maximum": 80,
+            "description": "音量。35 轻 / 50 正常 / 65 足",
+        },
+        "voice_pitch_rate": {
+            "type": "number",
+            "minimum": 0.85,
+            "maximum": 1.15,
+            "description": "音调。0.95 略低 / 1.0 自然 / 1.05 略高。调低会同时变慢",
+        },
+    }
+
+
 def build_tool_schemas(
     *, reference_image_keys: list[str] | None = None
 ) -> list[dict[str, Any]]:
     voice_id_schema = {"type": "string", "enum": _voice_ids()}
+    voice_binding_properties = _voice_binding_properties(voice_id_schema)
     reference_property: dict[str, Any] = {}
     if reference_image_keys:
         reference_property = {
@@ -132,7 +160,8 @@ def build_tool_schemas(
                 "name": "preview_voice",
                 "description": (
                     "为角色生成一段音色试听。选择一个基础系统音色，并设置语速、音量、音调，"
-                    "返回 preview_id 和可播放的试听地址。创建角色时必须使用这里返回的 preview_id。"
+                    "返回试听编号和可播放的试听地址。"
+                    "创建角色时把这里用的 base_voice_id 和三个参数原样填进 create_character。"
                 ),
                 "parameters": {
                     "type": "object",
@@ -240,10 +269,7 @@ def build_tool_schemas(
                             "minLength": 200,
                             "maxLength": 20000,
                         },
-                        "voice_preview_id": {
-                            "type": "string",
-                            "description": "preview_voice 返回的 preview_id",
-                        },
+                        **voice_binding_properties,
                         "avatar_image_key": {
                             "type": "string",
                             "description": "generate_avatar 返回的 avatar_image_key",
@@ -253,7 +279,7 @@ def build_tool_schemas(
                         "name",
                         "description",
                         "system_prompt",
-                        "voice_preview_id",
+                        "voice_base_id",
                     ],
                     "additionalProperties": False,
                 },
@@ -265,7 +291,8 @@ def build_tool_schemas(
                 "name": "update_character",
                 "description": (
                     "修改当前会话已创建的角色。只传需要改变的字段。"
-                    "换声音时传新的 voice_preview_id；角色 id 默认取当前会话的角色。"
+                    "换声音时传新的 voice_base_id 和三个音色参数；"
+                    "角色 id 默认取当前会话的角色。"
                 ),
                 "parameters": {
                     "type": "object",
@@ -279,7 +306,7 @@ def build_tool_schemas(
                             "minLength": 200,
                             "maxLength": 20000,
                         },
-                        "voice_preview_id": {"type": "string"},
+                        **voice_binding_properties,
                         "avatar_image_key": {"type": "string"},
                     },
                     "additionalProperties": False,
@@ -348,64 +375,6 @@ def _require_skill(context: ToolContext, name: str) -> ToolOutcome | None:
     )
 
 
-def _sign_preview_payload(payload: dict[str, Any]) -> str:
-    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    body = base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
-    signature = hmac.new(
-        settings.SECRET_KEY.encode("utf-8"),
-        body.encode("ascii"),
-        hashlib.sha256,
-    ).hexdigest()[:32]
-    return f"{body}.{signature}"
-
-
-def decode_preview_token(token: str, *, user_id: uuid.UUID) -> dict[str, Any]:
-    try:
-        body, signature = token.split(".", 1)
-    except ValueError as exc:
-        raise APIError(
-            status_code=422,
-            code="validation_failed",
-            message="validation failed: invalid voice preview id",
-        ) from exc
-
-    expected = hmac.new(
-        settings.SECRET_KEY.encode("utf-8"),
-        body.encode("ascii"),
-        hashlib.sha256,
-    ).hexdigest()[:32]
-    if not hmac.compare_digest(signature, expected):
-        raise APIError(
-            status_code=422,
-            code="validation_failed",
-            message="validation failed: invalid voice preview id",
-        )
-
-    padding = "=" * (-len(body) % 4)
-    try:
-        payload = json.loads(base64.urlsafe_b64decode(body + padding))
-    except Exception as exc:
-        raise APIError(
-            status_code=422,
-            code="validation_failed",
-            message="validation failed: invalid voice preview id",
-        ) from exc
-
-    if payload.get("uid") != str(user_id):
-        raise APIError(
-            status_code=403,
-            code="forbidden",
-            message="authorization failed: voice preview belongs to another user",
-        )
-    if int(payload.get("exp", 0)) < int(time.time()):
-        raise APIError(
-            status_code=422,
-            code="validation_failed",
-            message="validation failed: voice preview expired",
-        )
-    return payload
-
-
 def _voice_summary(voice_id: str) -> dict[str, Any]:
     item = VOICE_CATALOG[voice_id]
     return {
@@ -420,6 +389,71 @@ def _field_error(errors: list[str]) -> ToolOutcome:
     return ToolOutcome(llm_result={"ok": False, "errors": errors})
 
 
+@dataclass(frozen=True)
+class ResolvedVoice:
+    """The voice a character should be bound to."""
+
+    base_voice_id: str
+    profile: dict[str, Any]
+
+
+def _resolve_voice_arguments(
+    arguments: dict[str, Any],
+    *,
+    required: bool,
+    base_profile: dict[str, Any] | None = None,
+) -> tuple[ResolvedVoice | None, ToolOutcome | None]:
+    """Read the voice fields a character tool call carries.
+
+    The agent passes the base voice id and the three shaping values it already
+    picked for the audition. Those are short and verifiable on the server; an
+    opaque preview token is not, because a model re-types prose it has to copy
+    and the signature stops matching.
+
+    ``base_profile`` supplies the values the caller left out, so a partial
+    voice change keeps the shaping the character already has.
+    """
+    base_voice_id = str(arguments.get("voice_base_id") or "").strip()
+    provided: dict[str, Any] = {}
+    for field_name, argument_name in (
+        ("speech_rate", "voice_speech_rate"),
+        ("volume", "voice_volume"),
+        ("pitch_rate", "voice_pitch_rate"),
+    ):
+        value = arguments.get(argument_name)
+        if value is not None:
+            provided[field_name] = value
+
+    if not base_voice_id:
+        if provided:
+            return None, _field_error(
+                ["缺少 voice_base_id。只改语速/音量/音调时也要带上基础音色 id。"]
+            )
+        if required:
+            return None, _field_error(
+                ["缺少 voice_base_id。请从音色目录里选一个基础音色。"]
+            )
+        return None, None
+
+    if base_voice_id not in VOICE_CATALOG:
+        return None, _field_error(
+            [f"voice_base_id 不在音色目录中：{base_voice_id}。请从给定列表里选。"]
+        )
+
+    raw_profile = {
+        key: value
+        for key, value in (base_profile or {}).items()
+        if key in ("speech_rate", "volume", "pitch_rate")
+    }
+    raw_profile.update(provided)
+    raw_profile["base_voice_id"] = base_voice_id
+    try:
+        profile = normalize_voice_profile(raw_profile)
+    except APIError as exc:
+        return None, _field_error([exc.message])
+    return ResolvedVoice(base_voice_id=base_voice_id, profile=profile.to_dict()), None
+
+
 class ForgeToolExecutor:
     def __init__(
         self,
@@ -427,11 +461,13 @@ class ForgeToolExecutor:
         character_service: CharacterService,
         chat_service: ChatService,
         search_repository: DeepSeekSearchRepository,
+        preview_store: ForgePreviewStore,
         avatar_service: AvatarGenerationService,
     ):
         self._character_service = character_service
         self._chat_service = chat_service
         self._search = search_repository
+        self._previews = preview_store
         self._avatars = avatar_service
 
     async def execute(
@@ -507,16 +543,19 @@ class ForgeToolExecutor:
                 "pitch_rate": arguments.get("pitch_rate"),
             }
         )
-        payload = {
-            "uid": str(context.user.id),
-            "exp": int(time.time()) + _PREVIEW_TTL_SECONDS,
-            "base_voice_id": base_voice_id,
-            "voice_profile": profile.to_dict(),
-            "sample_text": sample_text,
-        }
-        preview_id = _sign_preview_payload(payload)
+        preview_id = await self._previews.create(
+            session_id=context.session.id,
+            user_id=context.user.id,
+            payload={
+                "base_voice_id": base_voice_id,
+                "voice_profile": profile.to_dict(),
+                "sample_text": sample_text,
+            },
+        )
         voice = _voice_summary(base_voice_id)
-        preview_url = f"/v1/character-forge/voice-previews/{preview_id}/audio"
+        preview_url = (
+            f"/v1/character-forge/voice-previews/{context.session.id}/{preview_id}/audio"
+        )
         ui_payload = {
             "type": "voice_preview",
             "preview_id": preview_id,
@@ -538,7 +577,10 @@ class ForgeToolExecutor:
                 "speech_rate": profile.speech_rate,
                 "volume": profile.volume,
                 "pitch_rate": profile.pitch_rate,
-                "note": "试听已生成并展示给用户。继续调用 create_character 绑定这个 preview_id。",
+                "note": (
+                    "试听已生成并展示给用户。继续调用 create_character，"
+                    "把这里选的 base_voice_id 和三个参数原样填进去。"
+                ),
             },
             ui_payload=ui_payload,
         )
@@ -601,10 +643,9 @@ class ForgeToolExecutor:
                 ["当前会话已经有角色。请调用 update_character 修改，不要重复创建。"]
             )
 
-        preview_id = str(arguments.get("voice_preview_id") or "").strip()
-        if not preview_id:
-            return _field_error(["缺少 voice_preview_id。请先调用 preview_voice。"])
-        preview = decode_preview_token(preview_id, user_id=context.user.id)
+        voice, voice_error = _resolve_voice_arguments(arguments, required=True)
+        if voice_error is not None:
+            return voice_error
 
         name = str(arguments.get("name") or "").strip()
         description = str(arguments.get("description") or "").strip()
@@ -636,9 +677,9 @@ class ForgeToolExecutor:
             avatar_image_key=avatar_image_key,
             voice_provider=DEFAULT_SYSTEM_TTS_PROVIDER,
             voice_model=settings.DASHSCOPE_TTS_MODEL,
-            voice_provider_voice_id=str(preview["base_voice_id"]),
+            voice_provider_voice_id=voice.base_voice_id,
             voice_source_type="system",
-            voice_profile=preview.get("voice_profile") or {},
+            voice_profile=voice.profile,
         )
         character = await self._character_service.create_character(
             character_in,
@@ -650,7 +691,7 @@ class ForgeToolExecutor:
 
         profile = character.voice_profile or {}
         voice_bundle = {
-            **_voice_summary(str(preview["base_voice_id"])),
+            **_voice_summary(voice.base_voice_id),
             "speech_rate": profile.get("speech_rate"),
             "volume": profile.get("volume"),
             "pitch_rate": profile.get("pitch_rate"),
@@ -716,16 +757,28 @@ class ForgeToolExecutor:
             if key in arguments and arguments[key] is not None:
                 update_fields[key] = arguments[key]
 
-        preview_id = str(arguments.get("voice_preview_id") or "").strip()
-        if preview_id:
-            preview = decode_preview_token(preview_id, user_id=context.user.id)
+        base_profile: dict[str, Any] | None = None
+        if str(arguments.get("voice_base_id") or "").strip():
+            # A voice swap that names no shaping value keeps what the
+            # character already sounds like.
+            current = await self._character_service.get_character(
+                uuid.UUID(str(target)), current_user=context.user
+            )
+            base_profile = current.voice_profile or {}
+
+        voice, voice_error = _resolve_voice_arguments(
+            arguments, required=False, base_profile=base_profile
+        )
+        if voice_error is not None:
+            return voice_error
+        if voice is not None:
             update_fields.update(
                 {
                     "voice_provider": DEFAULT_SYSTEM_TTS_PROVIDER,
                     "voice_model": settings.DASHSCOPE_TTS_MODEL,
-                    "voice_provider_voice_id": preview["base_voice_id"],
+                    "voice_provider_voice_id": voice.base_voice_id,
                     "voice_source_type": "system",
-                    "voice_profile": preview.get("voice_profile"),
+                    "voice_profile": voice.profile,
                 }
             )
 

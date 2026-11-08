@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from src.core.tts_voice_catalog import dashscope_legacy_voice_catalog
+from src.core.tts_voice_catalog import dashscope_full_voice_catalog
 from src.repositories.image_generation_repository import build_image_payload
 from src.services.character_forge_prompt import build_forge_system_prompt
 from src.services.character_forge_tools import (
@@ -36,10 +37,32 @@ SYSTEM_PROMPT_TEMPLATE_NARRATIVE = (
 ).read_text(encoding="utf-8")
 
 
+class _FakePreviewStore:
+    """In-memory stand-in for the Redis-backed voice preview store."""
+
+    def __init__(self) -> None:
+        self.items: dict[str, dict[str, object]] = {}
+
+    async def create(self, *, session_id, user_id, payload) -> str:
+        handle = f"pv{len(self.items) + 1}"
+        self.items[handle] = {
+            "session_id": session_id,
+            "user_id": user_id,
+            "payload": payload,
+        }
+        return handle
+
+    async def get(self, *, session_id, handle, user_id):
+        item = self.items[handle]
+        assert item["session_id"] == session_id
+        assert item["user_id"] == user_id
+        return item["payload"]
+
+
 def _context() -> ToolContext:
     return ToolContext(
         user=SimpleNamespace(id=uuid.uuid4()),
-        session=SimpleNamespace(active_character_id=None),
+        session=SimpleNamespace(id=uuid.uuid4(), active_character_id=None),
     )
 
 
@@ -48,6 +71,7 @@ def _executor() -> ForgeToolExecutor:
         character_service=None,
         chat_service=None,
         search_repository=None,
+        preview_store=_FakePreviewStore(),
         avatar_service=None,
     )
 
@@ -65,7 +89,7 @@ def test_character_skill_renders_both_system_prompt_templates():
 def test_voice_skill_renders_the_live_catalog():
     skill = load_forge_skill("voice-creation")
     assert skill is not None
-    for item in dashscope_legacy_voice_catalog():
+    for item in dashscope_full_voice_catalog():
         assert item.provider_voice_id in skill.content
     assert "{{" not in skill.content
 
@@ -177,14 +201,15 @@ async def test_create_character_persists_and_returns_created_card():
         character_service=characters,
         chat_service=_FakeChatService(),
         search_repository=None,
+        preview_store=_FakePreviewStore(),
         avatar_service=None,
     )
     context = ToolContext(
         user=SimpleNamespace(id=uuid.uuid4()),
-        session=SimpleNamespace(active_character_id=None),
+        session=SimpleNamespace(id=uuid.uuid4(), active_character_id=None),
         loaded_skills={"voice-creation", "prompt-creation"},
     )
-    voice_id = dashscope_legacy_voice_catalog()[0].provider_voice_id
+    voice_id = dashscope_full_voice_catalog()[0].provider_voice_id
     preview = await executor.execute(
         "preview_voice",
         {
@@ -197,6 +222,7 @@ async def test_create_character_persists_and_returns_created_card():
         context,
     )
     assert preview.llm_result["ok"] is True
+    assert preview.llm_result["preview_id"] == "pv1"
 
     created = await executor.execute(
         "create_character",
@@ -204,7 +230,10 @@ async def test_create_character_persists_and_returns_created_card():
             "name": "测试角色",
             "description": "一个用于测试创建流的角色",
             "system_prompt": "x" * 300,
-            "voice_preview_id": preview.llm_result["preview_id"],
+            "voice_base_id": voice_id,
+            "voice_speech_rate": 1.0,
+            "voice_volume": 50,
+            "voice_pitch_rate": 1.0,
         },
         context,
     )
@@ -216,6 +245,21 @@ async def test_create_character_persists_and_returns_created_card():
     assert created.ui_payload["chat_id"]
     assert created.character_created == created.ui_payload
     assert characters.created is not None
+    assert characters.created["in"].voice_provider_voice_id == voice_id
+
+
+async def _run_preview(executor, context, voice_id):
+    return await executor.execute(
+        "preview_voice",
+        {
+            "base_voice_id": voice_id,
+            "speech_rate": 1.0,
+            "volume": 50,
+            "pitch_rate": 1.0,
+            "sample_text": "这是一句用来测试创建角色的试听台词。",
+        },
+        context,
+    )
 
 
 def test_tool_schema_exposes_available_reference_images():
@@ -233,6 +277,123 @@ def test_tool_schema_exposes_available_reference_images():
     ]["properties"]
 
 
+def test_character_tools_never_ask_the_model_for_an_opaque_preview_token():
+    schemas = build_tool_schemas()
+    for tool_name in ("create_character", "update_character"):
+        tool = next(
+            schema["function"]
+            for schema in schemas
+            if schema["function"]["name"] == tool_name
+        )
+        properties = tool["parameters"]["properties"]
+        assert "voice_preview_id" not in properties
+        assert "voice_base_id" in properties
+        assert "voice_speech_rate" in properties
+
+
+async def test_preview_handle_is_a_short_serial_and_the_audio_url_stays_short():
+    executor = _executor()
+    context = _context()
+    context.loaded_skills.add("voice-creation")
+    voice_id = dashscope_full_voice_catalog()[0].provider_voice_id
+
+    preview = await _run_preview(executor, context, voice_id)
+
+    assert re.fullmatch(r"pv\d+", preview.llm_result["preview_id"])
+    assert preview.ui_payload is not None
+    assert preview.ui_payload["preview_url"].endswith(
+        f"/{context.session.id}/{preview.llm_result['preview_id']}/audio"
+    )
+
+
+async def test_update_character_keeps_the_existing_shaping_when_only_the_voice_changes():
+    class _FakeUpdatingCharacterService:
+        def __init__(self) -> None:
+            self.updated: dict[str, object] | None = None
+
+        async def get_character(self, character_id, *, current_user):
+            return SimpleNamespace(
+                voice_profile={
+                    "base_voice_id": "Eldric Sage",
+                    "speech_rate": 0.88,
+                    "volume": 35,
+                    "pitch_rate": 0.95,
+                }
+            )
+
+        async def update_character(self, character_id, *, character_in, current_user):
+            self.updated = {"in": character_in}
+            return SimpleNamespace(
+                id=str(character_id),
+                name=character_in.name or "Li Lu",
+                description=character_in.description or "价值投资大师",
+                avatar_image_key=None,
+                voice_provider_voice_id=character_in.voice_provider_voice_id,
+                voice_profile=character_in.voice_profile,
+            )
+
+    characters = _FakeUpdatingCharacterService()
+    executor = ForgeToolExecutor(
+        character_service=characters,
+        chat_service=None,
+        search_repository=None,
+        preview_store=_FakePreviewStore(),
+        avatar_service=None,
+    )
+    context = ToolContext(
+        user=SimpleNamespace(id=uuid.uuid4()),
+        session=SimpleNamespace(
+            id=uuid.uuid4(), active_character_id=str(uuid.uuid4())
+        ),
+        loaded_skills={"prompt-creation"},
+    )
+    other_voice = dashscope_full_voice_catalog()[1].provider_voice_id
+
+    result = await executor.execute(
+        "update_character",
+        {"voice_base_id": other_voice},
+        context,
+    )
+
+    assert result.llm_result["ok"] is True
+    assert characters.updated is not None
+    profile = characters.updated["in"].voice_profile
+    assert profile["base_voice_id"] == other_voice
+    assert profile["speech_rate"] == 0.88
+    assert profile["volume"] == 35
+    assert profile["pitch_rate"] == 0.95
+
+
+async def test_create_character_rejects_a_voice_outside_the_catalog():
+    characters = _FakeCharacterService()
+    executor = ForgeToolExecutor(
+        character_service=characters,
+        chat_service=_FakeChatService(),
+        search_repository=None,
+        preview_store=_FakePreviewStore(),
+        avatar_service=None,
+    )
+    context = ToolContext(
+        user=SimpleNamespace(id=uuid.uuid4()),
+        session=SimpleNamespace(id=uuid.uuid4(), active_character_id=None),
+        loaded_skills={"prompt-creation"},
+    )
+
+    result = await executor.execute(
+        "create_character",
+        {
+            "name": "测试角色",
+            "description": "一个用于测试创建流的角色",
+            "system_prompt": "x" * 300,
+            "voice_base_id": "No Such Voice",
+        },
+        context,
+    )
+
+    assert result.llm_result["ok"] is False
+    assert characters.created is None
+
+
 async def test_generate_avatar_passes_resolved_reference_images():
     class _FakeAvatarService:
         def __init__(self) -> None:
@@ -247,11 +408,12 @@ async def test_generate_avatar_passes_resolved_reference_images():
         character_service=None,
         chat_service=None,
         search_repository=None,
+        preview_store=_FakePreviewStore(),
         avatar_service=avatars,
     )
     context = ToolContext(
         user=SimpleNamespace(id=uuid.uuid4()),
-        session=SimpleNamespace(active_character_id=None),
+        session=SimpleNamespace(id=uuid.uuid4(), active_character_id=None),
         loaded_skills={"avatar-creation"},
         reference_images={
             "images/avatars/chat/u/one": "data:image/jpeg;base64,AAAA",

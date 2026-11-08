@@ -41,10 +41,10 @@ from src.services.character_forge_tools import (
     ToolContext,
     build_tool_schemas,
     collect_reference_images,
-    decode_preview_token,
 )
 from src.services.character_service import CharacterService
 from src.services.chat_service import ChatService, _build_user_message_with_images
+from src.services.forge_preview_store import ForgePreviewStore
 from src.services.llm_gateway_service import LLMGatewayService
 from src.services.tts_gateway_service import TTSGatewayService
 
@@ -187,6 +187,7 @@ class CharacterForgeService:
         llm_gateway_service: LLMGatewayService,
         tts_gateway_service: TTSGatewayService,
         search_repository: DeepSeekSearchRepository,
+        preview_store: ForgePreviewStore,
         character_service: CharacterService,
         chat_service: ChatService,
     ):
@@ -195,6 +196,7 @@ class CharacterForgeService:
         self._llm_gateway = llm_gateway_service
         self._tts = tts_gateway_service
         self._search = search_repository
+        self._previews = preview_store
         self._characters = character_service
         self._chats = chat_service
 
@@ -756,9 +758,17 @@ class CharacterForgeService:
     # ------------------------------------------------------------------ voice
 
     async def render_preview_audio(
-        self, user: User, preview_id: str, audio_format: str
+        self,
+        user: User,
+        session_id: uuid.UUID,
+        preview_id: str,
+        audio_format: str,
     ) -> tuple[str, AsyncGenerator[bytes, None]]:
-        payload = decode_preview_token(preview_id, user_id=user.id)
+        payload = await self._previews.get(
+            session_id=session_id,
+            handle=preview_id,
+            user_id=user.id,
+        )
         stream = self._tts.stream_tts_audio_base64(
             text=str(payload.get("sample_text") or ""),
             audio_format=audio_format,

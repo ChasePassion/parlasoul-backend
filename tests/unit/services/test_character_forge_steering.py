@@ -136,6 +136,7 @@ def _build(script: list[list[dict[str, Any]]], *, interruptible: bool = True):
         llm_gateway_service=gateway,
         tts_gateway_service=SimpleNamespace(),
         search_repository=SimpleNamespace(),
+        preview_store=SimpleNamespace(),
         character_service=SimpleNamespace(),
         chat_service=SimpleNamespace(),
     )

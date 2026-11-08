@@ -225,9 +225,14 @@ class CharacterService:
             model=model,
             provider_voice_id=provider_voice_id,
         )
+        # The full catalog is a superset of the legacy one, so validating
+        # against it also admits the extended dashscope voices bound through
+        # the character-forge agent. The minimax branch ignores the flag and
+        # keeps its own legacy mapping.
         voices = self._tts_registry.list_system_voices(
             provider=provider,
             model=model,
+            catalog="full",
         )
         for item in voices:
             current_id = item.get("provider_voice_id")
@@ -370,6 +375,7 @@ class CharacterService:
                 voices = self._tts_registry.list_system_voices(
                     provider=provider,
                     model=model,
+                    catalog="full",
                 )
             except APIError:
                 voices = []

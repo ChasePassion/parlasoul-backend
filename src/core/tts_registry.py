@@ -11,6 +11,7 @@ from src.core.tts_voice_catalog import (
     DEFAULT_DASHSCOPE_SYSTEM_VOICE_ID,
     DEFAULT_DASHSCOPE_TTS_MODEL,
     DEFAULT_TTS_SYSTEM_PROVIDER,
+    dashscope_full_voice_catalog,
     dashscope_legacy_voice_catalog,
     minimax_system_voice_catalog,
 )
@@ -292,6 +293,7 @@ class TTSRegistry:
         *,
         provider: str | None = None,
         model: str | None = None,
+        catalog: str = "legacy",
     ) -> list[dict[str, str | None]]:
         route = self.resolve_system_route(provider=provider, model=model)
         if route.provider == "minimax":
@@ -300,10 +302,12 @@ class TTSRegistry:
                 for item in minimax_system_voice_catalog(provider_model=route.model)
             ]
         if route.provider == "dashscope":
-            return [
-                item.to_dict(provider_model=route.model)
-                for item in dashscope_legacy_voice_catalog(provider_model=route.model)
-            ]
+            catalog_items = (
+                dashscope_full_voice_catalog(provider_model=route.model)
+                if catalog == "full"
+                else dashscope_legacy_voice_catalog(provider_model=route.model)
+            )
+            return [item.to_dict(provider_model=route.model) for item in catalog_items]
         raise APIError(
             status_code=400,
             code="voice_provider_unsupported",
