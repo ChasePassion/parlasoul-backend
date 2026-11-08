@@ -2,11 +2,13 @@
 
 from pathlib import Path
 
+import anyio
 from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 
 from src.api import deps
 from src.api.response import success_response
 from src.core.dependencies import (
+    get_local_media_store_provider,
     get_media_cache_service_provider,
     get_r2_storage_service_provider,
     get_upload_service,
@@ -17,11 +19,13 @@ from src.db.models import User
 from src.schemas.common import SuccessEnvelope
 from src.schemas.discover import DiscoverHeroImageUploadResponse
 from src.schemas.media import (
+    ChatImageUploadResponse,
     CompleteUploadRequest,
     CompleteUploadResponse,
     PresignedUploadRequest,
     PresignedUploadResponse,
 )
+from src.services.local_media_store import LocalMediaStore
 from src.services.media_cache_service import MediaCacheService
 from src.services.media_url_service import (
     public_media_content_type,
@@ -52,6 +56,20 @@ async def complete_upload(
     service: UploadService = Depends(get_upload_service),
 ) -> SuccessEnvelope[CompleteUploadResponse]:
     data = await service.complete_upload(request, current_user=current_user)
+    return success_response(data, status_code=200)
+
+
+@router.post("/v1/uploads/chat-image", response_model=SuccessEnvelope[ChatImageUploadResponse])
+async def upload_chat_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(deps.get_current_user),
+    service: UploadService = Depends(get_upload_service),
+) -> SuccessEnvelope[ChatImageUploadResponse]:
+    data = await service.upload_chat_image(
+        body=await file.read(),
+        content_type=file.content_type,
+        current_user=current_user,
+    )
     return success_response(data, status_code=200)
 
 
@@ -86,6 +104,7 @@ async def get_media_object(
     object_key: str,
     r2_storage: R2StorageService = Depends(get_r2_storage_service_provider),
     media_cache: MediaCacheService = Depends(get_media_cache_service_provider),
+    local_store: LocalMediaStore = Depends(get_local_media_store_provider),
 ) -> Response:
     normalized_key = validate_public_media_object_key(object_key)
     if normalized_key is None:
@@ -102,6 +121,18 @@ async def get_media_object(
             content_type=public_media_content_type(normalized_key),
             etag=None,
             cache_control=MEDIA_CACHE_CONTROL,
+            cache_state="local",
+        )
+
+    # Fresh uploads live on this host until the background sync reaches R2, so
+    # they must be served before the negative cache can mark them missing.
+    staged = await anyio.to_thread.run_sync(local_store.get, normalized_key)
+    if staged is not None:
+        return _media_response(
+            body=staged.body,
+            content_type=staged.content_type or public_media_content_type(normalized_key),
+            etag=None,
+            cache_control=staged.cache_control or MEDIA_CACHE_CONTROL,
             cache_state="local",
         )
 

@@ -178,6 +178,14 @@ class Settings(BaseSettings):
     MEDIA_CACHE_NEGATIVE_TTL_SECONDS: int = 60
     MEDIA_PRESIGNED_URL_TTL_SECONDS: int = 900
 
+    # Local staging: uploads are served from the host immediately and mirrored
+    # to R2 in the background (R2 has no mainland China edge).
+    LOCAL_MEDIA_ROOT: str = "data/local-media"
+    LOCAL_MEDIA_SYNC_ENABLED: bool = True
+    LOCAL_MEDIA_SYNC_WORKER_COUNT: int = 2
+    LOCAL_MEDIA_SYNC_SCAN_SECONDS: int = 60
+    LOCAL_MEDIA_RETENTION_HOURS: float = 24.0
+
     # User settings
     USER_SETTINGS_MESSAGE_FONT_SIZE_MIN: int = 14
     USER_SETTINGS_MESSAGE_FONT_SIZE_MAX: int = 24

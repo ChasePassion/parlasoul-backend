@@ -103,9 +103,25 @@ webhook cannot double-grant access.
 
 ### 3.9 Uploads and media
 
-Owns presigned upload sessions, AVIF variant generation, and public media
-delivery. Upload sessions and hot-object caches live in Redis; objects live in
-R2; PostgreSQL stores only object keys.
+Owns upload intake, AVIF variant generation, and public media delivery.
+
+Chat images and voice-clone recordings are written to a local staging directory
+first and served from there immediately; a background worker mirrors them into R2
+and marks each object synced. The file system is the queue, so a restart only
+needs a rescan instead of a separate broker. Avatars keep the presigned-upload
+flow (browser writes to R2 directly).
+
+The staging directory must be a persistent volume owned by the container user
+(uid 1001). It is the only copy of an object until the sync finishes; local
+copies are removed after `LOCAL_MEDIA_RETENTION_HOURS` once synced. Reads check
+local disk before the Redis hot cache and R2, and the negative cache is only
+consulted after the local miss, so a freshly uploaded object is never reported
+missing. Upload sessions and hot-object caches live in Redis; durable objects
+live in R2; PostgreSQL stores only object keys.
+
+The staging directory is per container: running more than one backend replica
+would need shared storage (or sticky routing) for objects that have not synced
+yet.
 
 ## 4. Request lifecycle
 
@@ -137,7 +153,8 @@ Chat, regenerate, and edit are streaming operations:
 | PostgreSQL | Users, settings, characters, chats, turns, candidates, saved items, billing state, telemetry |
 | Milvus | Memory text, embeddings, group centroids |
 | Redis | Upload sessions, upload locks, media hot cache, short-lived negative cache |
-| Cloudflare R2 | Avatars, cover images, voice previews, generated media |
+| Local staging volume | Chat images and recordings awaiting or within the retention window of the R2 sync |
+| Cloudflare R2 | Avatars, cover images, voice previews, generated media, synced chat media |
 
 ## 7. Row-level security
 

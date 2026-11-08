@@ -22,6 +22,16 @@ class AvatarUrls(SQLModel):
     xl: str
 
 
+class ChatImageUploadResponse(SQLModel):
+    image_key: str
+    original_url: str
+    display_url: str
+    content_type: str
+    size_bytes: int
+    width: int
+    height: int
+
+
 class PresignedUploadRequest(SQLModel):
     model_config = ConfigDict(extra="forbid")
 
