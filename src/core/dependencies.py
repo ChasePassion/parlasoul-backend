@@ -779,11 +779,11 @@ def get_avatar_generation_service(
     )
 
 
-def get_exa_repository():
-    """Centralized provider for the Exa search client."""
-    from src.repositories.exa_repository import ExaRepository
+def get_deepseek_search_repository():
+    """Centralized provider for the DeepSeek search/fetch client."""
+    from src.repositories.deepseek_search_repository import DeepSeekSearchRepository
 
-    return ExaRepository()
+    return DeepSeekSearchRepository()
 
 
 def get_character_forge_service(
@@ -798,18 +798,18 @@ def get_character_forge_service(
     from src.services.character_forge_service import CharacterForgeService
     from src.services.character_forge_tools import ForgeToolExecutor
 
-    exa_repository = get_exa_repository()
+    search_repository = get_deepseek_search_repository()
     return CharacterForgeService(
         repo=repo,
         tool_executor=ForgeToolExecutor(
             character_service=character_service,
             chat_service=chat_service,
-            exa_repository=exa_repository,
+            search_repository=search_repository,
             avatar_service=avatar_service,
         ),
         llm_gateway_service=llm_gateway_service,
         tts_gateway_service=tts_gateway_service,
-        exa_repository=exa_repository,
+        search_repository=search_repository,
         character_service=character_service,
         chat_service=chat_service,
     )
@@ -877,7 +877,7 @@ __all__ = [
     "get_llm_gateway_repository",
     "get_character_llm_service",
     "get_character_forge_repository",
-    "get_exa_repository",
+    "get_deepseek_search_repository",
     "get_image_generation_repository",
     "get_avatar_generation_service",
     "get_character_forge_service",

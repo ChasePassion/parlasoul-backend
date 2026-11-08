@@ -26,7 +26,7 @@ from src.db.models import (
     User,
 )
 from src.repositories.character_forge_repository import CharacterForgeRepository
-from src.repositories.exa_repository import ExaRepository
+from src.repositories.deepseek_search_repository import DeepSeekSearchRepository
 from src.schemas.character_forge import (
     ForgeMessageItem,
     ForgeSessionDetail,
@@ -186,7 +186,7 @@ class CharacterForgeService:
         tool_executor: ForgeToolExecutor,
         llm_gateway_service: LLMGatewayService,
         tts_gateway_service: TTSGatewayService,
-        exa_repository: ExaRepository,
+        search_repository: DeepSeekSearchRepository,
         character_service: CharacterService,
         chat_service: ChatService,
     ):
@@ -194,7 +194,7 @@ class CharacterForgeService:
         self._tools = tool_executor
         self._llm_gateway = llm_gateway_service
         self._tts = tts_gateway_service
-        self._exa = exa_repository
+        self._search = search_repository
         self._characters = character_service
         self._chats = chat_service
 

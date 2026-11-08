@@ -37,7 +37,7 @@ def _build(session: CharacterForgeSession):
         tool_executor=SimpleNamespace(),
         llm_gateway_service=SimpleNamespace(),
         tts_gateway_service=SimpleNamespace(),
-        exa_repository=SimpleNamespace(),
+        search_repository=SimpleNamespace(),
         character_service=SimpleNamespace(),
         chat_service=SimpleNamespace(),
     )
