@@ -370,7 +370,7 @@ async def test_stt_raises_upstream_error_with_header_error_message() -> None:
 
     assert exc.value.status_code == 502
     assert exc.value.code == "stt_upstream_error"
-    assert "payload.input" in exc.value.message
+    assert "payload.input" not in exc.value.message
 
 
 @pytest.mark.asyncio

@@ -50,10 +50,7 @@ class MemoryRepository:
             raise APIError(
                 status_code=503,
                 code=ErrorCode.MEMORY_UNAVAILABLE,
-                message=(
-                    "dependency unavailable: memory subsystem initialization failed; "
-                    f"err_type={type(exc).__name__}; err={exc}"
-                ),
+                message="dependency unavailable: memory subsystem initialization failed",
             ) from exc
 
     @property

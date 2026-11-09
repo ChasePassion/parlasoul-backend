@@ -109,6 +109,12 @@ def bind_log_context(**fields: str | None) -> Iterator[None]:
         reset_tokens(tokens)
 
 
+def get_request_id() -> str | None:
+    """Return the current request id when running inside a request context."""
+
+    return _REQUEST_ID.get()
+
+
 def current_log_context() -> dict[str, str]:
     """Return the current log context with empty values omitted."""
 

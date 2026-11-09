@@ -464,10 +464,11 @@ class AudioMediaService:
                 stderr=asyncio.subprocess.PIPE,
             )
         except FileNotFoundError as exc:
+            logger.exception("media tool not installed: %s", args[0])
             raise APIError(
                 status_code=500,
                 code=ErrorCode.INTERNAL_ERROR,
-                message=f"internal error: media tool not installed; binary={args[0]}",
+                message="internal error: media tool is not available",
             ) from exc
         stdout, stderr = await process.communicate()
         return process.returncode or 0, stdout or b"", stderr or b""

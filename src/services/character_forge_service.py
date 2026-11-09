@@ -19,6 +19,7 @@ from src.core.config import settings
 from src.core.error_codes import ErrorCode
 from src.core.exceptions import APIError
 from src.core.llm_registry import llm_registry
+from src.core.logging_context import get_request_id
 from src.db.models import (
     Character,
     CharacterForgeMessage,
@@ -58,6 +59,10 @@ _MAX_NAME_CHARS = 20
 
 
 def _sse(payload: dict[str, Any]) -> str:
+    if payload.get("type") == "error" and "request_id" not in payload:
+        request_id = get_request_id()
+        if request_id:
+            payload["request_id"] = request_id
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 

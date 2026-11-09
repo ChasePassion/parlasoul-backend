@@ -15,6 +15,7 @@ from typing import Any
 
 from src.api.response import APIError
 from src.core.config import settings as app_settings
+from src.core.logging_context import get_request_id
 from src.core.uow import UnitOfWork
 from src.db.models import (
     AuthorType,
@@ -906,7 +907,11 @@ class TurnService:
                 message=message,
                 partial_content=accumulated,
             )
-            return _sse_event({"type": "error", "code": code, "message": message})
+            frame = {"type": "error", "code": code, "message": message}
+            request_id = get_request_id()
+            if request_id:
+                frame["request_id"] = request_id
+            return _sse_event(frame)
 
         try:
             workflow_trace_context = current_trace_context(workflow_observation)
@@ -1340,19 +1345,18 @@ class TurnService:
             )
 
         except LLMFirstChunkTimeoutError as e:
-            message = (
-                "upstream timeout: llm stream did not produce the first chunk in time; "
-                f"model={e.model}; timeout_s={e.timeout_s:.1f}"
+            logger.warning(
+                "LLM first chunk timeout: model=%s timeout_s=%.1f",
+                e.model,
+                e.timeout_s,
             )
+            message = "upstream timeout: llm stream did not produce the first chunk in time"
             yield await _stream_error_frame("llm_stream_first_chunk_timeout", message)
         except LLMAuthenticationError as e:
             message = e.public_message()
             yield await _stream_error_frame("llm_service_error", message)
-        except LLMCallError as e:
-            message = (
-                "upstream error: llm request failed after retries; "
-                f"model={e.model}; attempts={e.attempts}"
-            )
+        except LLMCallError:
+            message = "upstream error: llm request failed after retries"
             yield await _stream_error_frame("llm_service_error", message)
         except Exception as e:
             logger.exception("Regen stream error for user %s: %s", current_user.id, e)
@@ -1421,7 +1425,8 @@ class TurnService:
                 cand.content = partial_content or ""
                 cand.is_final = True
                 extra = dict(cand.extra or {})
-                extra.update({"error_code": code, "error_message": message})
+                extra.pop("error_message", None)
+                extra.update({"error_code": code})
                 cand.extra = extra
 
             if turn:
@@ -1700,7 +1705,11 @@ class TurnService:
                 message=message,
                 partial_content=accumulated,
             )
-            return _sse_event({"type": "error", "code": code, "message": message})
+            frame = {"type": "error", "code": code, "message": message}
+            request_id = get_request_id()
+            if request_id:
+                frame["request_id"] = request_id
+            return _sse_event(frame)
 
         try:
             workflow_trace_context = current_trace_context(workflow_observation)
@@ -2085,19 +2094,18 @@ class TurnService:
             )
 
         except LLMFirstChunkTimeoutError as e:
-            message = (
-                "upstream timeout: llm stream did not produce the first chunk in time; "
-                f"model={e.model}; timeout_s={e.timeout_s:.1f}"
+            logger.warning(
+                "LLM first chunk timeout: model=%s timeout_s=%.1f",
+                e.model,
+                e.timeout_s,
             )
+            message = "upstream timeout: llm stream did not produce the first chunk in time"
             yield await _stream_error_frame("llm_stream_first_chunk_timeout", message)
         except LLMAuthenticationError as e:
             message = e.public_message()
             yield await _stream_error_frame("llm_service_error", message)
-        except LLMCallError as e:
-            message = (
-                "upstream error: llm request failed after retries; "
-                f"model={e.model}; attempts={e.attempts}"
-            )
+        except LLMCallError:
+            message = "upstream error: llm request failed after retries"
             yield await _stream_error_frame("llm_service_error", message)
         except Exception as e:
             logger.exception("Continue stream error for user %s: %s", current_user.id, e)
@@ -2166,7 +2174,8 @@ class TurnService:
                 cand.content = partial_content or ""
                 cand.is_final = True
                 extra = dict(cand.extra or {})
-                extra.update({"error_code": code, "error_message": message})
+                extra.pop("error_message", None)
+                extra.update({"error_code": code})
                 cand.extra = extra
 
             if turn:
@@ -2455,7 +2464,11 @@ class TurnService:
                 message=message,
                 partial_content=accumulated,
             )
-            return _sse_event({"type": "error", "code": code, "message": message})
+            frame = {"type": "error", "code": code, "message": message}
+            request_id = get_request_id()
+            if request_id:
+                frame["request_id"] = request_id
+            return _sse_event(frame)
 
         try:
             workflow_trace_context = current_trace_context(workflow_observation)
@@ -2922,19 +2935,18 @@ class TurnService:
             )
 
         except LLMFirstChunkTimeoutError as e:
-            message = (
-                "upstream timeout: llm stream did not produce the first chunk in time; "
-                f"model={e.model}; timeout_s={e.timeout_s:.1f}"
+            logger.warning(
+                "LLM first chunk timeout: model=%s timeout_s=%.1f",
+                e.model,
+                e.timeout_s,
             )
+            message = "upstream timeout: llm stream did not produce the first chunk in time"
             yield await _stream_error_frame("llm_stream_first_chunk_timeout", message)
         except LLMAuthenticationError as e:
             message = e.public_message()
             yield await _stream_error_frame("llm_service_error", message)
-        except LLMCallError as e:
-            message = (
-                "upstream error: llm request failed after retries; "
-                f"model={e.model}; attempts={e.attempts}"
-            )
+        except LLMCallError:
+            message = "upstream error: llm request failed after retries"
             yield await _stream_error_frame("llm_service_error", message)
         except Exception as e:
             logger.exception("User edit stream error for user %s: %s", current_user.id, e)
@@ -3022,7 +3034,8 @@ class TurnService:
                 cand.content = partial_content or ""
                 cand.is_final = True
                 extra = dict(cand.extra or {})
-                extra.update({"error_code": code, "error_message": message})
+                extra.pop("error_message", None)
+                extra.update({"error_code": code})
                 cand.extra = extra
 
             if turn:

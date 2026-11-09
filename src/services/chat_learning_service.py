@@ -12,10 +12,11 @@ from typing import Any
 
 from src.core.error_codes import ErrorCode
 from src.core.llm_registry import LLMRegistry, ResolvedLLMRoute, llm_registry
+from src.core.logging_context import get_request_id
 from src.repositories.saved_item_repository import SavedItemRepository
 from src.schemas.learning import (
-    ChatContextMessage,
     CardFavoriteState,
+    ChatContextMessage,
     FeedbackCard,
     FeedbackCardCore,
     ReplyCard,
@@ -235,19 +236,21 @@ class ChatLearningService:
                 yield _sse_event({"type": "chunk", "content": text})
         except asyncio.CancelledError:
             raise
-        except Exception as exc:
+        except Exception:
             logger.exception(
                 "Learning assistant stream failed; user_id=%s chat_id=%s",
                 user_id,
                 chat_id,
             )
-            yield _sse_event(
-                {
-                    "type": "error",
-                    "code": ErrorCode.LLM_SERVICE_ERROR,
-                    "message": str(exc) or _ASSISTANT_STREAM_ERROR_MESSAGE,
-                }
-            )
+            frame = {
+                "type": "error",
+                "code": ErrorCode.LLM_SERVICE_ERROR,
+                "message": _ASSISTANT_STREAM_ERROR_MESSAGE,
+            }
+            request_id = get_request_id()
+            if request_id:
+                frame["request_id"] = request_id
+            yield _sse_event(frame)
             return
 
         yield _sse_event(

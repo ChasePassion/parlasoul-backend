@@ -105,7 +105,9 @@ def _cosyvoice_event_name(event: dict[str, Any]) -> str | None:
     return _extract_event_type(event)
 
 
-def _extract_event_message(event: dict[str, Any], default: str) -> str:
+def _event_upstream_message(event: dict[str, Any]) -> str | None:
+    """Extract the raw upstream error text for the model-facing channel."""
+
     message = event.get("message")
     if isinstance(message, str) and message.strip():
         return message
@@ -114,14 +116,23 @@ def _extract_event_message(event: dict[str, Any], default: str) -> str:
         nested_message = error.get("message")
         if isinstance(nested_message, str) and nested_message.strip():
             return nested_message
+    return None
+
+
+def _extract_event_message(event: dict[str, Any], default: str) -> str:
+    """Return a fixed client-safe message; upstream detail is logged only."""
+    upstream_message = _event_upstream_message(event)
+    if upstream_message:
+        logger.warning("DashScope error event: %s", upstream_message)
     return default
 
 
-def _extract_stt_error_message(event: dict[str, Any], default: str) -> str:
-    """Extract STT websocket error message from multiple possible locations."""
-    message = event.get("message")
-    if isinstance(message, str) and message.strip():
-        return message
+def _stt_event_upstream_message(event: dict[str, Any]) -> str | None:
+    """Extract the raw STT upstream error text for the model-facing channel."""
+
+    upstream_message = _event_upstream_message(event)
+    if upstream_message:
+        return upstream_message
 
     header = event.get("header")
     if isinstance(header, dict):
@@ -134,7 +145,14 @@ def _extract_stt_error_message(event: dict[str, Any], default: str) -> str:
         payload_message = payload.get("message")
         if isinstance(payload_message, str) and payload_message.strip():
             return payload_message
+    return None
 
+
+def _extract_stt_error_message(event: dict[str, Any], default: str) -> str:
+    """Return a fixed client-safe message; upstream detail is logged only."""
+    upstream_message = _stt_event_upstream_message(event)
+    if upstream_message:
+        logger.warning("DashScope STT error event: %s", upstream_message)
     return default
 
 
@@ -606,10 +624,11 @@ class VoiceGatewayRepository:
 
                 return connect
             except Exception as exc:
+                logger.exception("websockets package availability check failed: %s", exc)
                 raise APIError(
                     status_code=503,
                     code="voice_dependency_missing",
-                    message=f"dependency unavailable: websockets package is missing; err={exc}",
+                    message="dependency unavailable: websockets package is missing",
                 )
 
     def _connect(
@@ -708,16 +727,20 @@ class VoiceGatewayRepository:
             raw_text = response.text.strip()
 
         upstream_code, upstream_message, upstream_request_id = self._extract_dashscope_error(detail)
+        logger.warning(
+            "DashScope http error: http_status=%s upstream_code=%s request_id=%s upstream_message=%s body=%s",
+            response.status_code,
+            upstream_code,
+            upstream_request_id,
+            upstream_message,
+            raw_text[:500] if raw_text else None,
+        )
         message_parts = [
             default_message,
             f"http_status={response.status_code}",
         ]
         if upstream_code:
             message_parts.append(f"upstream_code={upstream_code}")
-        if upstream_message:
-            message_parts.append(f"upstream_message={upstream_message}")
-        elif raw_text:
-            message_parts.append(f"upstream_message={raw_text[:200]}")
         if upstream_request_id:
             message_parts.append(f"request_id={upstream_request_id}")
 
@@ -727,6 +750,8 @@ class VoiceGatewayRepository:
             status_code=mapped_status,
             code=error_code,
             message="; ".join(message_parts),
+            upstream_code=upstream_code,
+            upstream_message=upstream_message or (raw_text[:2000] if raw_text else None),
         )
 
     async def _post_tts_customization(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -748,10 +773,11 @@ class VoiceGatewayRepository:
                 message="upstream timeout: dashscope voice customization request timed out",
             )
         except httpx.HTTPError as exc:
+            logger.exception("DashScope voice customization request failed: %s", exc)
             raise APIError(
                 status_code=502,
                 code="voice_provider_unavailable",
-                message=f"upstream error: dashscope voice customization request failed; err={exc}",
+                message="upstream error: dashscope voice customization request failed",
             )
 
         if response.status_code != 200:
@@ -764,13 +790,11 @@ class VoiceGatewayRepository:
         try:
             data = response.json()
         except Exception as exc:
+            logger.exception("DashScope voice customization returned invalid json: %s", exc)
             raise APIError(
                 status_code=502,
                 code="voice_provider_invalid_response",
-                message=(
-                    "upstream error: dashscope voice customization returned invalid json; "
-                    f"err={exc}"
-                ),
+                message="upstream error: dashscope voice customization returned invalid json",
             )
         if not isinstance(data, dict):
             raise APIError(
@@ -1241,6 +1265,7 @@ class VoiceGatewayRepository:
                                 event,
                                 "upstream error: stt task failed",
                             ),
+                            upstream_message=_stt_event_upstream_message(event),
                         )
                     if event_name in {"task-started", "task-running"}:
                         break
@@ -1278,6 +1303,7 @@ class VoiceGatewayRepository:
                                 event,
                                 "upstream error: stt task failed",
                             ),
+                            upstream_message=_stt_event_upstream_message(event),
                         )
 
                     if isinstance(payload, dict):
@@ -1308,7 +1334,7 @@ class VoiceGatewayRepository:
             raise APIError(
                 status_code=502,
                 code="stt_upstream_error",
-                message=f"upstream error: stt service request failed; err={exc}",
+                message="upstream error: stt service request failed",
             )
 
     def _wav_to_pcm16(
@@ -1325,10 +1351,11 @@ class VoiceGatewayRepository:
                 compression = wav_file.getcomptype()
                 frames = wav_file.readframes(wav_file.getnframes())
         except Exception as exc:
+            logger.exception("wav parsing failed: %s", exc)
             raise APIError(
                 status_code=422,
                 code="stt_invalid_audio",
-                message=f"invalid request: wav parsing failed; err={exc}",
+                message="invalid request: wav parsing failed",
             )
 
         if compression != "NONE":
@@ -1419,6 +1446,7 @@ class VoiceGatewayRepository:
                     status_code=502,
                     code="stt_upstream_error",
                     message=message,
+                    upstream_message=_event_upstream_message(event),
                 )
 
     async def _transcribe_audio_qwen3_realtime(
@@ -1541,6 +1569,7 @@ class VoiceGatewayRepository:
                                 status_code=502,
                                 code="stt_upstream_error",
                                 message=message,
+                                upstream_message=_event_upstream_message(event),
                             )
 
                         if event_type in {
@@ -1609,7 +1638,7 @@ class VoiceGatewayRepository:
                 raise APIError(
                     status_code=502,
                     code="stt_upstream_error",
-                    message=f"upstream error: stt service request failed; err={exc}",
+                    message="upstream error: stt service request failed",
                 )
 
         raise APIError(
@@ -1744,6 +1773,7 @@ class VoiceGatewayRepository:
                             status_code=502,
                             code="tts_upstream_error",
                             message=message,
+                            upstream_message=_event_upstream_message(event),
                         )
 
                     if event_type == "response.audio.delta":
@@ -1831,7 +1861,7 @@ class VoiceGatewayRepository:
             raise APIError(
                 status_code=502,
                 code="tts_upstream_error",
-                message=f"upstream error: tts service request failed; err={exc}",
+                message="upstream error: tts service request failed",
             )
 
     async def _stream_cosyvoice_tts(
@@ -1979,6 +2009,7 @@ class VoiceGatewayRepository:
                                 event,
                                 "upstream error: tts task failed to start",
                             ),
+                            upstream_message=_stt_event_upstream_message(event),
                         )
 
                 sender_task = asyncio.create_task(
@@ -2003,6 +2034,7 @@ class VoiceGatewayRepository:
                                 event,
                                 "upstream error: tts synthesis failed",
                             ),
+                            upstream_message=_stt_event_upstream_message(event),
                         )
                     if event_name == "task-finished":
                         break
@@ -2086,7 +2118,7 @@ class VoiceGatewayRepository:
             raise APIError(
                 status_code=502,
                 code="tts_upstream_error",
-                message=f"upstream error: tts service request failed; err={exc}",
+                message="upstream error: tts service request failed",
             )
         finally:
             if segment_counter is not None:
@@ -2505,6 +2537,7 @@ class VoiceGatewayRepository:
                             status_code=502,
                             code="tts_upstream_error",
                             message=message,
+                            upstream_message=_event_upstream_message(event),
                         )
 
                     if event_type == "response.audio.delta":
@@ -2609,7 +2642,7 @@ class VoiceGatewayRepository:
             raise APIError(
                 status_code=502,
                 code="tts_upstream_error",
-                message=f"upstream error: tts service request failed; err={exc}",
+                message="upstream error: tts service request failed",
             )
         finally:
             if segment_counter is not None:
@@ -2637,4 +2670,5 @@ class VoiceGatewayRepository:
                     status_code=502,
                     code="tts_upstream_error",
                     message=message,
+                    upstream_message=_event_upstream_message(event),
                 )

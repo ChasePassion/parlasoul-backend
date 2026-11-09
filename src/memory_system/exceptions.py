@@ -67,11 +67,5 @@ class LLMAuthenticationError(Exception):
         super().__init__(self.public_message())
 
     def public_message(self) -> str:
-        message = (
-            "upstream authentication failed: llm credentials were rejected; "
-            f"model={self.model}"
-        )
-        message = f"{message}; verify llm api key/base url configuration"
-        if self.detail:
-            message = f"{message}; detail={self.detail}"
-        return message
+        """Return the client-safe message; upstream detail stays in logs."""
+        return "upstream authentication failed: llm credentials were rejected"

@@ -9,6 +9,7 @@ import httpx
 
 from src.core.config import settings
 from src.core.exceptions import APIError
+from src.core.upstream_errors import parse_upstream_error
 
 logger = logging.getLogger(__name__)
 
@@ -104,18 +105,20 @@ class ImageGenerationRepository:
                     message="upstream error: image generation timed out",
                 ) from exc
             except httpx.HTTPError as exc:
+                logger.exception("image generation request failed: %s", exc)
                 raise APIError(
                     status_code=502,
                     code="external_error",
-                    message=f"upstream error: image generation request failed; err={exc}",
+                    message="upstream error: image generation request failed",
                 ) from exc
 
             if response.status_code != 200:
-                detail = response.text[:300]
+                upstream_code, upstream_message = parse_upstream_error(response.text)
                 logger.warning(
-                    "image generation failed: status=%s body=%s",
+                    "image generation failed: status=%s upstream_code=%s body=%s",
                     response.status_code,
-                    detail,
+                    upstream_code,
+                    response.text[:300],
                 )
                 raise APIError(
                     status_code=502,
@@ -124,6 +127,8 @@ class ImageGenerationRepository:
                         "upstream error: image generation failed; "
                         f"status={response.status_code}"
                     ),
+                    upstream_code=upstream_code,
+                    upstream_message=upstream_message,
                 )
 
             try:
@@ -147,10 +152,11 @@ class ImageGenerationRepository:
                 image_response = await client.get(image_url)
                 image_response.raise_for_status()
             except httpx.HTTPError as exc:
+                logger.exception("image download failed: %s", exc)
                 raise APIError(
                     status_code=502,
                     code="external_error",
-                    message=f"upstream error: image download failed; err={exc}",
+                    message="upstream error: image download failed",
                 ) from exc
             return image_response.content
 

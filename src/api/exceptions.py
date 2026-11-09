@@ -41,10 +41,12 @@ def _default_error_code(status_code: int) -> str:
 
 
 def _normalize_http_message(status_code: int, detail: object) -> str:
-    """Build normalized message from HTTPException detail payload."""
-    if isinstance(detail, str) and detail.strip():
-        return detail
+    """Build a fixed, client-safe message for HTTPException responses.
 
+    ``detail`` is intentionally ignored for string payloads: it may carry
+    internal exception text from call sites that should use ``APIError``
+    instead. The fixed fallback keeps the response contract stable.
+    """
     if isinstance(detail, dict):
         message = detail.get("message")
         if isinstance(message, str) and message.strip():
@@ -61,27 +63,69 @@ def _normalize_http_message(status_code: int, detail: object) -> str:
     return fallback.get(status_code, "internal error: unexpected server error")
 
 
+_VALIDATION_RULE_BY_TYPE: dict[str, str] = {
+    "missing": "required",
+    "extra_forbidden": "not_allowed",
+    "too_long": "length_out_of_range",
+    "too_short": "length_out_of_range",
+    "greater_than": "out_of_range",
+    "greater_than_equal": "out_of_range",
+    "less_than": "out_of_range",
+    "less_than_equal": "out_of_range",
+    "value_error": "invalid_value",
+}
+
+
+def _validation_rule(error_type: object) -> str:
+    """Map a pydantic error type to a stable, language-neutral rule name."""
+    if not isinstance(error_type, str) or not error_type:
+        return "invalid"
+    if error_type in _VALIDATION_RULE_BY_TYPE:
+        return _VALIDATION_RULE_BY_TYPE[error_type]
+    if error_type.endswith("_type") or error_type.endswith("_parsing"):
+        return "invalid_type"
+    return "invalid_value" if error_type.endswith("_enum") else "invalid"
+
+
+def _validation_errors(exc: RequestValidationError) -> list[dict[str, str]]:
+    """Build structured field/rule entries without pydantic's English text."""
+    details: list[dict[str, str]] = []
+    for error in exc.errors():
+        location = [
+            str(part)
+            for part in error.get("loc", [])
+            if part not in {"body", "query", "path", "header", "cookie"}
+        ]
+        details.append(
+            {
+                "field": ".".join(location) or "request",
+                "rule": _validation_rule(error.get("type")),
+            }
+        )
+    return details
+
+
 def register_exception_handlers(app) -> None:
     """Register all exception handlers with the FastAPI app."""
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_handler(request: Request, exc: RequestValidationError):
-        first_error = exc.errors()[0] if exc.errors() else {}
-        field_path = ".".join(str(part) for part in first_error.get("loc", [])) or "unknown"
-        reason = first_error.get("msg", "invalid value")
-        message = (
-            "validation failed: request parameters are invalid; "
-            f"field={field_path}; reason={reason}"
-        )
+        logger.warning("Request validation failed: %s", exc.errors())
+        message = "validation failed: request parameters are invalid"
         return JSONResponse(
             status_code=422,
-            content=error_body(422, ErrorCode.VALIDATION_FAILED, message),
+            content=error_body(
+                422,
+                ErrorCode.VALIDATION_FAILED,
+                message,
+                errors=_validation_errors(exc),
+            ),
         )
 
     @app.exception_handler(MilvusConnectionError)
     async def milvus_connection_handler(request: Request, exc: MilvusConnectionError):
         logger.error("Milvus connection error: %s", exc)
-        message = f"dependency unavailable: failed to connect to milvus; uri={exc.uri}"
+        message = "dependency unavailable: failed to connect to milvus"
         return JSONResponse(
             status_code=503,
             content=error_body(503, ErrorCode.DB_CONNECTION_ERROR, message),
@@ -90,10 +134,7 @@ def register_exception_handlers(app) -> None:
     @app.exception_handler(LLMCallError)
     async def llm_call_handler(request: Request, exc: LLMCallError):
         logger.error("LLM call error: %s", exc)
-        message = (
-            "upstream error: llm request failed after retries; "
-            f"model={exc.model}; attempts={exc.attempts}"
-        )
+        message = "upstream error: llm request failed after retries"
         return JSONResponse(
             status_code=502,
             content=error_body(502, ErrorCode.LLM_SERVICE_ERROR, message),
@@ -101,7 +142,12 @@ def register_exception_handlers(app) -> None:
 
     @app.exception_handler(LLMAuthenticationError)
     async def llm_auth_handler(request: Request, exc: LLMAuthenticationError):
-        logger.error("LLM authentication error: %s", exc)
+        logger.error(
+            "LLM authentication error: model=%s provider=%s detail=%s",
+            exc.model,
+            exc.provider,
+            exc.detail,
+        )
         return JSONResponse(
             status_code=502,
             content=error_body(502, ErrorCode.LLM_SERVICE_ERROR, exc.public_message()),

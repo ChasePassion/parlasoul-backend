@@ -10,6 +10,7 @@ import httpx
 
 from src.core.config import settings
 from src.core.exceptions import APIError
+from src.core.upstream_errors import parse_upstream_error
 
 logger = logging.getLogger(__name__)
 
@@ -65,20 +66,20 @@ class DeepSeekSearchRepository:
                     message="upstream error: deepseek search request timed out",
                 ) from exc
             except httpx.HTTPError as exc:
+                logger.exception("deepseek search request failed: %s", exc)
                 raise APIError(
                     status_code=502,
                     code="external_error",
-                    message=(
-                        "upstream error: deepseek search request failed; err="
-                        f"{exc}"
-                    ),
+                    message="upstream error: deepseek search request failed",
                 ) from exc
 
             if response.status_code != 200:
+                upstream_code, upstream_message = parse_upstream_error(response.text)
                 logger.warning(
-                    "deepseek search failed: path=%s status=%s body=%s",
+                    "deepseek search failed: path=%s status=%s upstream_code=%s body=%s",
                     path,
                     response.status_code,
+                    upstream_code,
                     response.text[:300],
                 )
                 raise APIError(
@@ -88,6 +89,8 @@ class DeepSeekSearchRepository:
                         "upstream error: deepseek search failed; "
                         f"status={response.status_code}"
                     ),
+                    upstream_code=upstream_code,
+                    upstream_message=upstream_message,
                 )
 
             try:

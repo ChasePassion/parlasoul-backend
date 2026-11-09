@@ -123,6 +123,31 @@ async def test_search_reports_upstream_failure_as_external_error():
     assert excinfo.value.code == "external_error"
 
 
+async def test_upstream_failure_keeps_the_original_reason():
+    recorder = _Recorder(
+        httpx.Response(
+            404,
+            json={
+                "error": {
+                    "message": "failed to fetch URL (request_id: 837891de)",
+                    "type": "not_found_error",
+                    "code": "invalid_request_error",
+                }
+            },
+        )
+    )
+    repo = _repository(recorder)
+
+    with pytest.raises(APIError) as excinfo:
+        await repo.fetch_page(url="https://example.com/a")
+
+    error = excinfo.value
+    assert error.upstream_code == "invalid_request_error"
+    assert error.upstream_message == "failed to fetch URL (request_id: 837891de)"
+    assert error.message == "upstream error: deepseek search failed; status=404"
+    assert "failed to fetch URL" not in error.message
+
+
 async def test_fetch_page_returns_markdown_content():
     recorder = _Recorder(
         httpx.Response(200, json={"title": "页面标题", "content": "# 正文"})

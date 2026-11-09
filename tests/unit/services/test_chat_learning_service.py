@@ -402,10 +402,7 @@ async def test_stream_assistant_reply_emits_error_event_on_gateway_failure() -> 
     ]
     payloads = _parse_sse_payloads(events)
 
-    assert payloads == [
-        {
-            "type": "error",
-            "code": "llm_service_error",
-            "message": "boom",
-        }
-    ]
+    assert len(payloads) == 1
+    assert payloads[0]["type"] == "error"
+    assert payloads[0]["code"] == "llm_service_error"
+    assert "boom" not in payloads[0]["message"]
