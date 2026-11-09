@@ -546,28 +546,16 @@ class CharacterForgeService:
             loaded_skills=loaded_skills,
             reference_images=reference_images,
         )
-        search_budget: list[int] = []
-        tool_context.search_calls = search_budget
-        tool_context.avatar_calls = []
-
         runtime = _runtime_for(session.id)
         last_assistant_id: str | None = None
         step_index = 0
-        step_limit = settings.CHARACTER_FORGE_MAX_STEPS
         try:
             while True:
-                if step_index >= step_limit:
-                    if not runtime.steers:
-                        break
-                    # Every steering message grants one more model request.
-                    step_limit += 1
-
                 if step_index > 0 and runtime.steers:
                     # Safe boundary: the previous assistant message and all of
                     # its tool results are already persisted and in `messages`.
                     drained = list(runtime.steers)
                     runtime.steers.clear()
-                    step_limit += len(drained)
                     drained_payload: list[dict[str, str]] = []
                     for item in drained:
                         steer_seq = await self._repo.next_seq(session.id)
