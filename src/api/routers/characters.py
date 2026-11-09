@@ -88,7 +88,7 @@ async def delete_character(
     current_user: User = Depends(deps.get_current_user),
     service: CharacterService = Depends(get_character_service),
 ):
-    """Permanently delete a character. Only creator can delete."""
+    """Soft delete a character. Only creator can delete."""
     await service.delete_character(character_id, current_user=current_user)
     return no_content_response()
 

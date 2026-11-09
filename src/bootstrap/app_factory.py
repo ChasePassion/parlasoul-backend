@@ -43,6 +43,7 @@ from src.jobs.proactive_scheduler import proactive_scheduler_loop, proactive_wor
 from src.jobs.semantic_scheduler import semantic_consolidation_scheduler_loop
 from src.observability import init_langfuse
 from src.realtime.lifespan import shutdown_realtime, startup_realtime
+from src.services.media_sync_worker import get_media_sync_worker
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +102,16 @@ async def lifespan(app: FastAPI):
     app.state.realtime_session_manager = get_realtime_session_manager()
     await startup_realtime(app.state.realtime_session_manager)
 
+    # Uploads are served from local disk; this worker mirrors them into R2.
+    media_sync_worker = get_media_sync_worker()
+    await media_sync_worker.start()
+    app.state.media_sync_worker = media_sync_worker
+
     yield
 
     logger.info("Shutting down ParlaSoul API server...")
     await shutdown_realtime(app.state.realtime_session_manager)
+    await media_sync_worker.stop()
     task = getattr(app.state, "semantic_consolidation_task", None)
     if task:
         task.cancel()

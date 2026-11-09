@@ -35,6 +35,7 @@ class ProactiveCharacterPreferenceRepository:
                 Chat.user_id == user_id,
                 Turn.author_type == AuthorType.USER.value,
                 Character.visibility == VisibilityType.PUBLIC.value,
+                Character.deleted_at.is_(None),
             )
             .distinct()
         )
@@ -99,6 +100,7 @@ class ProactiveCharacterPreferenceRepository:
             .where(
                 ProactiveCharacterPreference.user_id == user_id,
                 Character.visibility == VisibilityType.PUBLIC.value,
+                Character.deleted_at.is_(None),
             )
             .order_by(desc(interacted_subq.c.last_interaction_at), desc(Character.id))
         )
@@ -118,6 +120,7 @@ class ProactiveCharacterPreferenceRepository:
                 ProactiveCharacterPreference.user_id == user_id,
                 ProactiveCharacterPreference.enabled.is_(True),
                 Character.visibility == VisibilityType.PUBLIC.value,
+                Character.deleted_at.is_(None),
             )
         )
         rows = await self._db.execute(stmt)

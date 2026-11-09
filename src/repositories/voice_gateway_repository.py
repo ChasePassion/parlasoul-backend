@@ -8,11 +8,10 @@ import errno
 import io
 import json
 import logging
-import re
 import time
 import uuid
 import wave
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -97,6 +96,15 @@ def _extract_event_type(event: dict[str, Any]) -> str | None:
     return event_type if isinstance(event_type, str) else None
 
 
+def _cosyvoice_event_name(event: dict[str, Any]) -> str | None:
+    header = event.get("header")
+    if isinstance(header, dict):
+        event_name = header.get("event")
+        if isinstance(event_name, str) and event_name:
+            return event_name
+    return _extract_event_type(event)
+
+
 def _extract_event_message(event: dict[str, Any], default: str) -> str:
     message = event.get("message")
     if isinstance(message, str) and message.strip():
@@ -133,6 +141,57 @@ def _extract_stt_error_message(event: dict[str, Any], default: str) -> str:
 def _is_qwen3_realtime_asr_model(model: str) -> bool:
     normalized = model.strip().lower()
     return normalized.startswith("qwen3-asr-flash-realtime")
+
+
+# CosyVoice models speak the run-task/continue-task/finish-task protocol on the
+# inference endpoint, not the session.update protocol used by Qwen-TTS.
+_COSYVOICE_LANGUAGE_HINTS = {
+    "chinese": "zh",
+    "english": "en",
+    "german": "de",
+    "italian": "it",
+    "portuguese": "pt",
+    "spanish": "es",
+    "japanese": "ja",
+    "korean": "ko",
+    "french": "fr",
+    "russian": "ru",
+}
+
+
+def _is_cosyvoice_tts_model(model: str) -> bool:
+    return model.strip().lower().startswith("cosyvoice-")
+
+
+def _cosyvoice_language_hints(language_type: str) -> list[str]:
+    hint = _COSYVOICE_LANGUAGE_HINTS.get((language_type or "").strip().lower())
+    return [hint] if hint else []
+
+
+def _tts_mime_type(audio_format: str) -> str:
+    if audio_format == "opus":
+        return "audio/opus"
+    if audio_format == "mp3":
+        return "audio/mpeg"
+    if audio_format == "wav":
+        return "audio/wav"
+    if audio_format == "pcm":
+        return "audio/pcm;rate=24000"
+    return "application/octet-stream"
+
+
+async def _single_text_segments(text: str) -> AsyncIterator[str | None]:
+    yield text
+
+
+async def _queue_text_segments(
+    queue: asyncio.Queue[str | None],
+) -> AsyncIterator[str | None]:
+    while True:
+        segment = await queue.get()
+        yield segment
+        if segment is None:
+            return
 
 
 def _parse_stt_language_hints(value: str) -> list[str]:
@@ -497,6 +556,7 @@ class VoiceGatewayRepository:
         self._timbre_list_doc_url = settings.DASHSCOPE_TIMBRE_LIST_DOC_URL
         self._timbre_list_cache_seconds = max(60, settings.DASHSCOPE_TIMBRE_LIST_CACHE_SECONDS)
         self._stt_ws_url = settings.DASHSCOPE_BASE_WEBSOCKET_API_URL
+        self._tts_inference_ws_url = settings.DASHSCOPE_BASE_WEBSOCKET_API_URL
         self._stt_realtime_ws_url = settings.DASHSCOPE_STT_REALTIME_WEBSOCKET_API_URL
         self._tts_ws_url = settings.DASHSCOPE_TTS_WEBSOCKET_API_URL
         self._billing_region = _infer_dashscope_billing_region(
@@ -585,19 +645,10 @@ class VoiceGatewayRepository:
             )
 
     @staticmethod
-    def _normalize_preferred_name(display_name: str) -> str:
-        normalized = re.sub(r"[^A-Za-z0-9_]+", "_", display_name.strip())
-        normalized = re.sub(r"_+", "_", normalized).strip("_")
-        if not normalized:
-            normalized = "voice"
-        if normalized[0].isdigit():
-            normalized = f"v_{normalized}"
+    def _voice_clone_prefix() -> str:
+        """`voice-enrollment` requires a short lowercase alnum prefix per voice."""
 
-        # DashScope requires letters/numbers/underscore and max length of 16.
-        random_suffix = uuid.uuid4().hex[:6]
-        max_prefix_len = 16 - len(random_suffix) - 1
-        prefix = normalized[:max_prefix_len] if max_prefix_len > 0 else normalized[:16]
-        return f"{prefix}_{random_suffix}"[:16]
+        return f"p{uuid.uuid4().hex[:7]}"
 
     @staticmethod
     def _audio_data_uri_for_clone(*, audio_bytes: bytes, source_audio_format: str) -> str:
@@ -1586,6 +1637,24 @@ class VoiceGatewayRepository:
                 message="invalid request: tts text is empty",
             )
 
+        tts_model = (
+            provider_model.strip()
+            if provider_model and provider_model.strip()
+            else self._tts_model
+        )
+        if _is_cosyvoice_tts_model(tts_model):
+            async for chunk in self._stream_cosyvoice_tts(
+                segments=_single_text_segments(text),
+                audio_format=audio_format,
+                instructions=instructions,
+                provider_voice_id=provider_voice_id,
+                provider_model=tts_model,
+                voice_profile=voice_profile,
+                observation_name="voice.tts.stream",
+            ):
+                yield chunk
+            return
+
         if audio_format == "opus":
             mime_type = "audio/opus"
         elif audio_format == "mp3":
@@ -1623,7 +1692,6 @@ class VoiceGatewayRepository:
             "event_id": _new_event_id(),
             "type": "session.finish",
         }
-        tts_model = provider_model.strip() if provider_model and provider_model.strip() else self._tts_model
         ws_url = _append_or_replace_query_param(
             self._tts_ws_url,
             key="model",
@@ -1766,6 +1834,266 @@ class VoiceGatewayRepository:
                 message=f"upstream error: tts service request failed; err={exc}",
             )
 
+    async def _stream_cosyvoice_tts(
+        self,
+        *,
+        segments: AsyncIterator[str | None],
+        audio_format: str,
+        instructions: str | None,
+        provider_voice_id: str | None,
+        provider_model: str,
+        voice_profile: dict[str, Any] | None,
+        observation_name: str,
+        debug_capture: Any | None = None,
+        segment_counter: list[int] | None = None,
+    ) -> AsyncGenerator[tuple[str, str], None]:
+        """Stream CosyVoice synthesis through the run-task/continue-task protocol."""
+        api_key = self._require_api_key()
+        mime_type = _tts_mime_type(audio_format)
+        voice = (
+            provider_voice_id.strip()
+            if provider_voice_id and provider_voice_id.strip()
+            else "Cherry"
+        )
+        synthesis_params: dict[str, Any] = {
+            "text_type": "PlainText",
+            "voice": voice,
+            "format": audio_format,
+            "sample_rate": 24000,
+        }
+        profile_params = _voice_profile_session_params(voice_profile)
+        if "speech_rate" in profile_params:
+            synthesis_params["rate"] = profile_params["speech_rate"]
+        if "volume" in profile_params:
+            synthesis_params["volume"] = int(profile_params["volume"])
+        if "pitch_rate" in profile_params:
+            synthesis_params["pitch"] = profile_params["pitch_rate"]
+        language_hints = _cosyvoice_language_hints(self._tts_language())
+        if language_hints:
+            synthesis_params["language_hints"] = language_hints
+        if instructions and instructions.strip():
+            synthesis_params["instruction"] = instructions.strip()
+
+        task_id = str(uuid.uuid4())
+        run_task_payload = {
+            "header": {
+                "action": "run-task",
+                "task_id": task_id,
+                "streaming": "duplex",
+            },
+            "payload": {
+                "task_group": "audio",
+                "task": "tts",
+                "function": "SpeechSynthesizer",
+                "model": provider_model,
+                "parameters": synthesis_params,
+                "input": {},
+            },
+        }
+        observation = _start_voice_model_observation(
+            name=observation_name,
+            model=provider_model,
+            input_payload={
+                "audio_format": audio_format,
+                "voice": voice,
+                "streamed_segments": True,
+            },
+            metadata={
+                "provider": _DASHSCOPE_PROVIDER,
+                "billing_region": self._billing_region,
+                "billing_unit": _LANGFUSE_UNIT_CHARACTERS,
+                "operation": observation_name,
+                "model": _dashscope_model_label(provider_model),
+                "provider_voice_id": voice,
+                "instructions_chars": len(instructions.strip())
+                if instructions and instructions.strip()
+                else 0,
+                "output_billed": False,
+            },
+        )
+
+        sent_segment_count = 0
+        input_characters = 0
+
+        async def _sender(ws: Any) -> None:
+            nonlocal sent_segment_count, input_characters
+            async for segment in segments:
+                if segment is None:
+                    break
+                text = segment.strip()
+                if not text:
+                    continue
+                input_characters += len(text)
+                sent_segment_count += 1
+                if debug_capture is not None:
+                    debug_capture.record_tts_segment(
+                        index=sent_segment_count,
+                        text=text,
+                    )
+                await ws.send(
+                    _json_dumps(
+                        {
+                            "header": {
+                                "action": "continue-task",
+                                "task_id": task_id,
+                                "streaming": "duplex",
+                            },
+                            "payload": {"input": {"text": text}},
+                        }
+                    )
+                )
+            await ws.send(
+                _json_dumps(
+                    {
+                        "header": {
+                            "action": "finish-task",
+                            "task_id": task_id,
+                            "streaming": "duplex",
+                        },
+                        "payload": {"input": {}},
+                    }
+                )
+            )
+
+        sender_task: asyncio.Task[None] | None = None
+        audio_frame_count = 0
+        try:
+            async with self._connect(
+                self._tts_inference_ws_url,
+                api_key=api_key,
+            ) as ws:
+                await ws.send(_json_dumps(run_task_payload))
+                while True:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=15.0)
+                    if isinstance(raw, bytes):
+                        continue
+                    event = _load_json(raw)
+                    event_name = _cosyvoice_event_name(event)
+                    if event_name == "task-started":
+                        break
+                    if event_name in {"task-failed", "error"}:
+                        raise APIError(
+                            status_code=502,
+                            code="tts_upstream_error",
+                            message=_extract_stt_error_message(
+                                event,
+                                "upstream error: tts task failed to start",
+                            ),
+                        )
+
+                sender_task = asyncio.create_task(
+                    _sender(ws),
+                    name="voice.tts.cosyvoice_sender",
+                )
+
+                while True:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=30.0)
+                    if isinstance(raw, bytes):
+                        if raw:
+                            audio_frame_count += 1
+                            yield base64.b64encode(raw).decode("ascii"), mime_type
+                        continue
+                    event = _load_json(raw)
+                    event_name = _cosyvoice_event_name(event)
+                    if event_name in {"task-failed", "error"}:
+                        raise APIError(
+                            status_code=502,
+                            code="tts_upstream_error",
+                            message=_extract_stt_error_message(
+                                event,
+                                "upstream error: tts synthesis failed",
+                            ),
+                        )
+                    if event_name == "task-finished":
+                        break
+
+            _end_voice_model_observation(
+                observation,
+                output={
+                    "audio_frame_count": audio_frame_count,
+                    "mime_type": mime_type,
+                    "sent_segments": sent_segment_count,
+                },
+                usage_details=_characters_usage_details(input_characters),
+                metadata={
+                    "provider": _DASHSCOPE_PROVIDER,
+                    "billing_region": self._billing_region,
+                    "billing_unit": _LANGFUSE_UNIT_CHARACTERS,
+                    "usage_source": "input_text_characters",
+                    "audio_format": audio_format,
+                    "mime_type": mime_type,
+                    "provider_voice_id": voice,
+                    "instructions_chars": len(instructions.strip())
+                    if instructions and instructions.strip()
+                    else 0,
+                    "output_billed": False,
+                },
+            )
+        except APIError:
+            _end_voice_model_observation(
+                observation,
+                level="ERROR",
+                status_message="Voice TTS failed: APIError",
+                metadata={
+                    "provider": _DASHSCOPE_PROVIDER,
+                    "billing_region": self._billing_region,
+                    "billing_unit": _LANGFUSE_UNIT_CHARACTERS,
+                    "error_type": "APIError",
+                    "audio_format": audio_format,
+                    "provider_voice_id": voice,
+                },
+            )
+            raise
+        except TimeoutError:
+            _end_voice_model_observation(
+                observation,
+                level="ERROR",
+                status_message="Voice TTS failed: TimeoutError",
+                metadata={
+                    "provider": _DASHSCOPE_PROVIDER,
+                    "billing_region": self._billing_region,
+                    "billing_unit": _LANGFUSE_UNIT_CHARACTERS,
+                    "error_type": "TimeoutError",
+                    "audio_format": audio_format,
+                    "provider_voice_id": voice,
+                },
+            )
+            raise APIError(
+                status_code=504,
+                code="external_timeout",
+                message="upstream timeout: tts service response timed out",
+            )
+        except Exception as exc:
+            _end_voice_model_observation(
+                observation,
+                level="ERROR",
+                status_message=f"Voice TTS failed: {type(exc).__name__}",
+                metadata={
+                    "provider": _DASHSCOPE_PROVIDER,
+                    "billing_region": self._billing_region,
+                    "billing_unit": _LANGFUSE_UNIT_CHARACTERS,
+                    "error_type": type(exc).__name__,
+                    "audio_format": audio_format,
+                    "provider_voice_id": voice,
+                },
+            )
+            logger.exception(
+                "CosyVoice TTS call failed: %s; model=%s; ws_url=%s",
+                exc,
+                provider_model,
+                self._tts_inference_ws_url,
+            )
+            raise APIError(
+                status_code=502,
+                code="tts_upstream_error",
+                message=f"upstream error: tts service request failed; err={exc}",
+            )
+        finally:
+            if segment_counter is not None:
+                segment_counter[0] = sent_segment_count
+            if sender_task and not sender_task.done():
+                sender_task.cancel()
+
     async def create_voice_clone(
         self,
         *,
@@ -1801,18 +2129,22 @@ class VoiceGatewayRepository:
             )
 
         payload_input: dict[str, Any] = {
-            "action": "create",
+            "action": "create_voice",
             "target_model": self._voice_clone_target_model,
-            "preferred_name": self._normalize_preferred_name(display_name),
-            "audio": {
-                "data": self._audio_data_uri_for_clone(
-                    audio_bytes=source_audio_bytes,
-                    source_audio_format=source_audio_format,
-                )
-            },
+            "prefix": self._voice_clone_prefix(),
+            # CosyVoice expects the data URI itself; the {"data": ...} object
+            # shape belongs to the omni models and makes DashScope answer 500.
+            "audio": self._audio_data_uri_for_clone(
+                audio_bytes=source_audio_bytes,
+                source_audio_format=source_audio_format,
+            ),
+            # 预处理显著降低气声；音量归一化对克隆质量无副作用，一并打开。
+            "enable_preprocess": True,
+            "max_prompt_audio_length": settings.VOICE_CLONE_MAX_PROMPT_SECONDS,
+            "enable_volume_normalization": "true",
         }
         if language_hint and language_hint.strip():
-            payload_input["language"] = language_hint.strip()
+            payload_input["language_hints"] = [language_hint.strip()]
 
         source_duration_seconds, source_duration_method = _estimate_audio_duration_seconds(
             audio_bytes=source_audio_bytes,
@@ -1881,7 +2213,7 @@ class VoiceGatewayRepository:
                 message="upstream error: dashscope create clone response missing output",
             )
 
-        provider_voice_id = output.get("voice")
+        provider_voice_id = output.get("voice_id") or output.get("voice")
         if not isinstance(provider_voice_id, str) or not provider_voice_id.strip():
             _end_voice_model_observation(
                 observation,
@@ -1902,22 +2234,7 @@ class VoiceGatewayRepository:
 
         provider_model = output.get("target_model")
         if not isinstance(provider_model, str) or not provider_model.strip():
-            _end_voice_model_observation(
-                observation,
-                level="ERROR",
-                status_message="Voice clone create failed: missing output.target_model",
-                metadata={
-                    "provider": _DASHSCOPE_PROVIDER,
-                    "billing_region": self._billing_region,
-                    "billing_unit": _LANGFUSE_UNIT_SECONDS,
-                    "target_model": _dashscope_model_label(self._voice_clone_target_model),
-                },
-            )
-            raise APIError(
-                status_code=502,
-                code="voice_provider_invalid_response",
-                message="upstream error: dashscope create clone response missing output.target_model",
-            )
+            provider_model = self._voice_clone_target_model
 
         provider_request_id = data.get("request_id")
         if not isinstance(provider_request_id, str):
@@ -1983,8 +2300,8 @@ class VoiceGatewayRepository:
         payload = {
             "model": self._voice_enrollment_model,
             "input": {
-                "action": "delete",
-                "voice": voice_id,
+                "action": "delete_voice",
+                "voice_id": voice_id,
             },
         }
         observation = _start_voice_model_observation(
@@ -2049,6 +2366,26 @@ class VoiceGatewayRepository:
     ) -> AsyncGenerator[tuple[str, str], None]:
         api_key = self._require_api_key()
 
+        tts_model = (
+            provider_model.strip()
+            if provider_model and provider_model.strip()
+            else self._tts_model
+        )
+        if _is_cosyvoice_tts_model(tts_model):
+            async for chunk in self._stream_cosyvoice_tts(
+                segments=_queue_text_segments(segments_queue),
+                audio_format=audio_format,
+                instructions=instructions,
+                provider_voice_id=provider_voice_id,
+                provider_model=tts_model,
+                voice_profile=voice_profile,
+                observation_name="voice.tts.stream_segments",
+                debug_capture=debug_capture,
+                segment_counter=segment_counter,
+            ):
+                yield chunk
+            return
+
         if audio_format == "opus":
             mime_type = "audio/opus"
         elif audio_format == "mp3":
@@ -2072,7 +2409,6 @@ class VoiceGatewayRepository:
             session_payload["session"]["instructions"] = instructions.strip()
         session_payload["session"].update(_voice_profile_session_params(voice_profile))
 
-        tts_model = provider_model.strip() if provider_model and provider_model.strip() else self._tts_model
         ws_url = _append_or_replace_query_param(
             self._tts_ws_url,
             key="model",

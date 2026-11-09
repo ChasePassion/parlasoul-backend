@@ -171,7 +171,7 @@ class CharacterService:
 
     async def _require_character(self, character_id: uuid.UUID) -> Character:
         character = await self._repo.get_by_id(character_id)
-        if not character:
+        if not character or character.deleted_at is not None:
             raise APIError(
                 status_code=404,
                 code="character_not_found",
@@ -643,26 +643,16 @@ class CharacterService:
         *,
         current_user: User,
     ) -> None:
-        """Permanently delete a character. Only creator can delete.
+        """Soft delete a character. Only creator can delete.
 
-        Vector memories are purged across all users after the row is gone;
-        a purge failure never blocks deletion because every memory query
-        scopes by character_id, so leftover vectors stay unreachable.
+        The row stays in place so chats, turns and growth statistics survive;
+        every listing and read path filters ``deleted_at``.
         """
         character = await self._require_character(character_id)
 
         self._assert_creator(character, current_user, "delete")
 
-        await self._repo.delete(character)
-
-        if self._memory_repo is not None:
-            try:
-                await self._memory_repo.purge_character(character_id=str(character.id))
-            except Exception:
-                logger.exception(
-                    "Memory purge failed after character deletion; character_id=%s",
-                    character_id,
-                )
+        await self._repo.soft_delete(character)
 
     async def publish_character(
         self,

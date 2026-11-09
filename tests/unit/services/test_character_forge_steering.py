@@ -32,6 +32,7 @@ class _FakeMessage:
     tool_name: str | None = None
     ui_payloads: list[dict[str, Any]] = field(default_factory=list)
     images: list[dict[str, Any]] | None = None
+    audios: list[dict[str, Any]] | None = None
     created_at: datetime | None = None
 
 

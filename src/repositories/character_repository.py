@@ -72,7 +72,10 @@ class CharacterRepository:
         stmt = (
             select(Character, User.username)
             .outerjoin(User, Character.creator_id == User.id)
-            .where(Character.creator_id == creator_id)
+            .where(
+                Character.creator_id == creator_id,
+                Character.deleted_at.is_(None),
+            )
             .offset(skip)
             .limit(limit)
         )
@@ -85,6 +88,7 @@ class CharacterRepository:
             .outerjoin(User, Character.creator_id == User.id)
             .where(
                 Character.visibility == VisibilityType.PUBLIC.value,
+                Character.deleted_at.is_(None),
             )
             .order_by(Character.created_at.asc(), Character.id.asc())
             .offset(skip)
@@ -114,6 +118,7 @@ class CharacterRepository:
         stmt = select(Character).where(
             Character.creator_id == creator_id,
             Character.id.in_(character_ids),
+            Character.deleted_at.is_(None),
         )
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
@@ -131,6 +136,7 @@ class CharacterRepository:
             Character.voice_provider == voice_provider,
             Character.voice_provider_voice_id == voice_provider_voice_id,
             Character.voice_source_type == voice_source_type,
+            Character.deleted_at.is_(None),
         )
         result = await self._db.execute(stmt)
         return [row[0] for row in result.all()]
@@ -161,6 +167,7 @@ class CharacterRepository:
             )
             .where(
                 Character.creator_id == creator_id,
+                Character.deleted_at.is_(None),
                 or_(*predicates),
             )
             .group_by(
@@ -245,9 +252,12 @@ class CharacterRepository:
             await self._db.refresh(character)
         return character
 
-    async def delete(self, character: Character) -> None:
-        """Remove the character; chats and per-character stats cascade."""
-        await self._db.delete(character)
+    async def soft_delete(self, character: Character) -> None:
+        """Hide the character while keeping its chats and statistics."""
+        now = datetime.now(UTC)
+        character.deleted_at = now
+        character.visibility = VisibilityType.PRIVATE.value
+        character.unpublished_at = now
         await self._db.commit()
 
     async def publish(self, character: Character) -> Character:

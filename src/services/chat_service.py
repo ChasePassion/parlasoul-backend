@@ -676,7 +676,7 @@ class ChatService:
 
         async with self._uow.transactional():
             character = await self._character_repo.get_by_id(character_id)
-            if not character:
+            if not character or character.deleted_at is not None:
                 raise APIError(
                     status_code=404,
                     code="character_not_found",

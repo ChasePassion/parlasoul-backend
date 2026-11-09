@@ -91,6 +91,9 @@ services:
         source: ${PARLASOUL_ROOT:-/srv/parlasoul}/data/uploads
         target: /app/static/uploads
       - type: bind
+        source: ${PARLASOUL_ROOT:-/srv/parlasoul}/data/media
+        target: /app/data/local-media
+      - type: bind
         source: ${PARLASOUL_ROOT:-/srv/parlasoul}/logs/backend
         target: /app/logs
       - type: bind

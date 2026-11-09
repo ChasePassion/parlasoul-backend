@@ -120,6 +120,11 @@ jobs:
           set -euo pipefail
           cd "${DEPLOY_ROOT}"
 
+          # Uploads stage here before the background sync reaches R2; the
+          # backend container runs as uid 1001 and must be able to write.
+          mkdir -p "${DEPLOY_ROOT}/data/media"
+          chown -R 1001:1001 "${DEPLOY_ROOT}/data/media"
+
           BACKEND_IMAGE_NAME="chasepassion/parlasoul-backend:${IMAGE_TAG}"
           BACKEND_IMAGE=""
           for registry in ghcr.nju.edu.cn ghcr.1ms.run; do

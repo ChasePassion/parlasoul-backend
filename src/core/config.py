@@ -178,6 +178,21 @@ class Settings(BaseSettings):
     MEDIA_CACHE_NEGATIVE_TTL_SECONDS: int = 60
     MEDIA_PRESIGNED_URL_TTL_SECONDS: int = 900
 
+    # Local staging: uploads are served from the host immediately and mirrored
+    # to R2 in the background (R2 has no mainland China edge).
+    LOCAL_MEDIA_ROOT: str = "data/local-media"
+    LOCAL_MEDIA_SYNC_ENABLED: bool = True
+    LOCAL_MEDIA_SYNC_WORKER_COUNT: int = 2
+    LOCAL_MEDIA_SYNC_SCAN_SECONDS: int = 60
+    LOCAL_MEDIA_RETENTION_HOURS: float = 24.0
+
+    # Chat audio (voice-clone source recordings)
+    CHAT_AUDIO_MAX_UPLOAD_BYTES: int = 20 * 1024 * 1024
+    CHAT_AUDIO_ALLOWED_FORMATS: str = "wav,mp3,m4a,flac,opus"
+    VOICE_CLONE_MAX_PROMPT_SECONDS: float = 10.0
+    FFMPEG_BINARY: str = "ffmpeg"
+    FFPROBE_BINARY: str = "ffprobe"
+
     # User settings
     USER_SETTINGS_MESSAGE_FONT_SIZE_MIN: int = 14
     USER_SETTINGS_MESSAGE_FONT_SIZE_MAX: int = 24
@@ -349,8 +364,8 @@ class Settings(BaseSettings):
     DASHSCOPE_STT_MODEL: str = "qwen3-asr-flash-realtime"
     DASHSCOPE_TTS_MODEL: str = "qwen3-tts-flash-realtime"
     DASHSCOPE_BILLING_REGION: str | None = None
-    DASHSCOPE_VOICE_ENROLLMENT_MODEL: str = "qwen-voice-enrollment"
-    DASHSCOPE_VOICE_CLONE_TARGET_MODEL: str = "qwen3-tts-vc-realtime-2026-01-15"
+    DASHSCOPE_VOICE_ENROLLMENT_MODEL: str = "voice-enrollment"
+    DASHSCOPE_VOICE_CLONE_TARGET_MODEL: str = "cosyvoice-v3-flash"
     DASHSCOPE_HTTP_TIMEOUT_SECONDS: float = 30.0
     DASHSCOPE_STT_EVENT_TIMEOUT_SECONDS: float = 60.0
     # One-shot STT (the chat composer microphone button) uses the synchronous
@@ -508,6 +523,10 @@ class Settings(BaseSettings):
     @cached_property
     def media_allowed_mime_list(self) -> list[str]:
         return _split_csv(self.MEDIA_ALLOWED_MIME)
+
+    @cached_property
+    def chat_audio_allowed_formats(self) -> list[str]:
+        return _split_csv(self.CHAT_AUDIO_ALLOWED_FORMATS)
 
     @cached_property
     def media_image_variants_list(self) -> list[int]:

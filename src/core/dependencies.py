@@ -63,7 +63,9 @@ from src.services.image_processing_service import (
     get_image_processing_service,
 )
 from src.services.llm_gateway_service import LLMGatewayService
+from src.services.local_media_store import LocalMediaStore, get_local_media_store
 from src.services.media_cache_service import MediaCacheService, get_media_cache_service
+from src.services.media_sync_worker import MediaSyncWorker, get_media_sync_worker
 from src.services.proactive_preference_service import ProactivePreferenceService
 from src.services.r2_storage_service import R2StorageService, get_r2_storage_service
 from src.services.realtime_telemetry_service import RealtimeTelemetryService
@@ -255,6 +257,14 @@ def get_media_cache_service_provider() -> MediaCacheService:
 
 def get_image_processing_service_provider() -> ImageProcessingService:
     return get_image_processing_service()
+
+
+def get_local_media_store_provider() -> LocalMediaStore:
+    return get_local_media_store()
+
+
+def get_media_sync_worker_provider() -> MediaSyncWorker:
+    return get_media_sync_worker()
 
 
 def get_user_settings_repository(db: AsyncSession = Depends(get_db)) -> UserSettingsRepository:
@@ -529,6 +539,8 @@ def get_upload_service(
     r2_storage: R2StorageService = Depends(get_r2_storage_service_provider),
     media_cache: MediaCacheService = Depends(get_media_cache_service_provider),
     image_processor: ImageProcessingService = Depends(get_image_processing_service_provider),
+    local_store: LocalMediaStore = Depends(get_local_media_store_provider),
+    sync_worker: MediaSyncWorker = Depends(get_media_sync_worker_provider),
 ):
     """Centralized provider for UploadService."""
     from src.services.upload_service import UploadService
@@ -537,6 +549,23 @@ def get_upload_service(
         r2_storage=r2_storage,
         media_cache=media_cache,
         image_processor=image_processor,
+        local_store=local_store,
+        sync_worker=sync_worker,
+    )
+
+
+def get_audio_media_service(
+    r2_storage: R2StorageService = Depends(get_r2_storage_service_provider),
+    local_store: LocalMediaStore = Depends(get_local_media_store_provider),
+    sync_worker: MediaSyncWorker = Depends(get_media_sync_worker_provider),
+):
+    """Centralized provider for AudioMediaService."""
+    from src.services.audio_media_service import AudioMediaService
+
+    return AudioMediaService(
+        r2_storage=r2_storage,
+        local_store=local_store,
+        sync_worker=sync_worker,
     )
 
 
@@ -800,6 +829,8 @@ def get_character_forge_service(
     llm_gateway_service: LLMGatewayService = Depends(get_llm_gateway_service),
     tts_gateway_service: TTSGatewayService = Depends(get_tts_gateway_service),
     avatar_service=Depends(get_avatar_generation_service),
+    audio_service=Depends(get_audio_media_service),
+    voice_profile_service=Depends(get_voice_profile_service),
 ):
     """Centralized provider for CharacterForgeService."""
     from src.services.character_forge_service import CharacterForgeService
@@ -815,6 +846,8 @@ def get_character_forge_service(
             search_repository=search_repository,
             preview_store=preview_store,
             avatar_service=avatar_service,
+            audio_service=audio_service,
+            voice_profile_service=voice_profile_service,
         ),
         llm_gateway_service=llm_gateway_service,
         tts_gateway_service=tts_gateway_service,
@@ -855,6 +888,7 @@ __all__ = [
     "get_subscription_service",
     "get_wechat_payment_service",
     "get_upload_service",
+    "get_audio_media_service",
     "get_chat_service",
     "get_turn_service",
     "get_character_repository",

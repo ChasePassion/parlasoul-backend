@@ -398,6 +398,7 @@ sequenceDiagram
   - 由 `CharacterService` 创建与更新。
   - 与 [`voice_profiles`](#table-voice_profiles) 通过一组绑定键协作，而不是中间绑定表。
   - 与 [`chats`](#table-chats) 构成“角色 -> 多个用户会话”的关系。
+  - 删除角色采用软删除：写入 `deleted_at` 并下架，不物理删除行，因此聊天记录与统计数据保留。
 - 当前地位
   - 主链路核心表。
 
@@ -418,6 +419,7 @@ sequenceDiagram
 | `voice_source_type` | 当前绑定音色来源类型。`system` 走系统音色 catalog；`clone` 走用户音色资产校验。 | 区分 system / clone 等来源，并决定 provider registry 路由。 |
 | `llm_preset_id` | 产品化 LLM 预设，当前为 `free/flagship`；`flagship` 需要付费权益。 | 角色创建 / 编辑写入，聊天生成时解析实际 provider/model。 |
 | `unpublished_at` | 最近一次离开公开市场的时间（`visibility` 从 `PUBLIC` 写成 `PRIVATE` 时写入，重新上架时清空；从未上架为空）。 | 只读历史与运营审计。 |
+| `deleted_at` | 软删除时间。非空表示角色已删除：不再出现在个人中心、市场、聊天列表、成长统计和主动消息候选中，详情接口返回 404；角色行、聊天记录、统计与音色绑定继续保留。 | 删除角色时写入，同时置为 `PRIVATE` 并记录 `unpublished_at`；所有角色列表与读取路径按 `deleted_at IS NULL` 过滤。 |
 | `created_at` | 创建时间。 | 排序、审计。 |
 | `updated_at` | 最后更新时间。 | 编辑角色后刷新。 |
 

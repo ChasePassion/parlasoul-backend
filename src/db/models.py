@@ -780,6 +780,10 @@ class Character(Base, table=True):
         default=None,
         sa_column=Column(TIMESTAMP(timezone=True), nullable=True),
     )
+    deleted_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True), nullable=True),
+    )
     visibility: str = Field(
         default=VisibilityType.PRIVATE.value,
         sa_column=Column(visibility_enum, nullable=False),
@@ -2517,6 +2521,9 @@ class CharacterForgeMessage(Base, table=True):
         sa_column=Column(JSONB, nullable=False, server_default="[]"),
     )
     images: list[dict[str, Any]] | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
+    audios: list[dict[str, Any]] | None = Field(
         default=None, sa_column=Column(JSONB, nullable=True)
     )
     created_at: datetime | None = Field(

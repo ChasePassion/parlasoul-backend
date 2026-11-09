@@ -160,7 +160,11 @@ async def stream_reply(
     return StreamingResponse(
         _with_sse_heartbeat(
             service.stream_reply(
-                current_user, session_id, request.content, request.images
+                current_user,
+                session_id,
+                request.content,
+                request.images,
+                request.audios,
             )
         ),
         media_type="text/event-stream",

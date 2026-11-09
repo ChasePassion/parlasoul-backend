@@ -8,19 +8,25 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import anyio
+
 from src.core.config import settings
 from src.core.error_codes import ErrorCode
 from src.core.exceptions import APIError
 from src.db.models import User
 from src.schemas.discover import DiscoverHeroImageUploadResponse
 from src.schemas.media import (
+    ChatImageUploadResponse,
     CompleteUploadRequest,
     CompleteUploadResponse,
+    MediaUploadKind,
     PresignedUploadRequest,
     PresignedUploadResponse,
 )
 from src.services.image_processing_service import ImageProcessingService
+from src.services.local_media_store import LocalMediaStore
 from src.services.media_cache_service import MediaCacheService
+from src.services.media_sync_worker import MediaSyncWorker
 from src.services.media_url_service import (
     avatar_image_key,
     build_avatar_urls,
@@ -53,10 +59,114 @@ class UploadService:
         r2_storage: R2StorageService,
         media_cache: MediaCacheService,
         image_processor: ImageProcessingService,
+        local_store: LocalMediaStore,
+        sync_worker: MediaSyncWorker,
     ):
         self._r2_storage = r2_storage
         self._media_cache = media_cache
         self._image_processor = image_processor
+        self._local_store = local_store
+        self._sync_worker = sync_worker
+
+    async def upload_chat_image(
+        self,
+        *,
+        body: bytes,
+        content_type: str | None,
+        current_user: User,
+    ) -> ChatImageUploadResponse:
+        """Stage one chat image locally; R2 receives it in the background."""
+
+        self._require_media_services()
+
+        if not body:
+            raise APIError(
+                status_code=422,
+                code=ErrorCode.VALIDATION_FAILED,
+                message="invalid upload: image file is empty",
+            )
+        if len(body) > settings.MEDIA_MAX_UPLOAD_BYTES:
+            limit_mb = max(1, settings.MEDIA_MAX_UPLOAD_BYTES // 1024 // 1024)
+            raise APIError(
+                status_code=413,
+                code=ErrorCode.UPLOAD_FILE_TOO_LARGE,
+                message=f"invalid upload: image size exceeds limit; limit_mb={limit_mb}",
+            )
+
+        normalized_content_type = (content_type or "").split(";")[0].strip().lower()
+        if normalized_content_type not in settings.media_allowed_mime_list:
+            allowed = ",".join(settings.media_allowed_mime_list)
+            raise APIError(
+                status_code=415,
+                code=ErrorCode.UPLOAD_FILE_TYPE_NOT_ALLOWED,
+                message=f"invalid upload: file type is not allowed; allowed={allowed}",
+            )
+
+        dimensions = await self._image_processor.inspect_image(body)
+        image_key = avatar_image_key(
+            MediaUploadKind.CHAT_IMAGE, str(current_user.id), uuid.uuid4().hex
+        )
+        original_key = original_object_key(image_key)
+        display_variant = await self._image_processor.build_display_variant(body)
+        display_key = chat_image_display_object_key(image_key)
+
+        staged_original = await self._stage_object(
+            object_key=original_key,
+            body=body,
+            content_type=normalized_content_type,
+        )
+        staged_display = staged_original and await self._stage_object(
+            object_key=display_key,
+            body=display_variant.body,
+            content_type=display_variant.content_type,
+        )
+        if not (staged_original and staged_display):
+            await self._discard_staged(original_key, display_key)
+            raise APIError(
+                status_code=500,
+                code=ErrorCode.INTERNAL_ERROR,
+                message="internal error: failed to stage uploaded image",
+            )
+        self._sync_worker.enqueue(original_key)
+        self._sync_worker.enqueue(display_key)
+        await self._media_cache.set_cached_media(
+            object_key=display_key,
+            body=display_variant.body,
+            content_type=display_variant.content_type,
+            etag=None,
+            cache_control=CACHE_CONTROL_IMMUTABLE,
+        )
+        urls = build_chat_image_urls(image_key)
+        logger.info(
+            "chat_image staged: image_key=%s original_bytes=%d display_bytes=%d",
+            image_key,
+            len(body),
+            len(display_variant.body),
+        )
+        return ChatImageUploadResponse(
+            image_key=image_key,
+            original_url=urls["original"],
+            display_url=urls["display"],
+            content_type=normalized_content_type,
+            size_bytes=len(body),
+            width=dimensions.width,
+            height=dimensions.height,
+        )
+
+    async def _stage_object(self, *, object_key: str, body: bytes, content_type: str) -> bool:
+        return await anyio.to_thread.run_sync(
+            lambda: self._local_store.put(
+                object_key=object_key,
+                body=body,
+                content_type=content_type,
+                cache_control=CACHE_CONTROL_IMMUTABLE,
+            )
+        )
+
+    async def _discard_staged(self, *object_keys: str) -> None:
+        await anyio.to_thread.run_sync(
+            lambda: [self._local_store.delete(key) for key in object_keys]
+        )
 
     async def create_presigned_upload(
         self,
