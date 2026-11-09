@@ -2519,6 +2519,9 @@ class CharacterForgeMessage(Base, table=True):
     images: list[dict[str, Any]] | None = Field(
         default=None, sa_column=Column(JSONB, nullable=True)
     )
+    audios: list[dict[str, Any]] | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
     created_at: datetime | None = Field(
         default=None,
         sa_column=Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False),

@@ -28,6 +28,7 @@ from src.db.models import (
 from src.repositories.character_forge_repository import CharacterForgeRepository
 from src.repositories.deepseek_search_repository import DeepSeekSearchRepository
 from src.schemas.character_forge import (
+    ForgeAudioRef,
     ForgeMessageItem,
     ForgeSessionDetail,
     ForgeSessionList,
@@ -85,9 +86,11 @@ def _message_images(message: CharacterForgeMessage) -> list[ChatImageRef] | None
 
 def _message_to_llm(message: CharacterForgeMessage) -> dict[str, Any] | None:
     if message.role == "user":
-        return _build_user_message_with_images(
-            message.content or "", _message_images(message)
-        )
+        audios = _message_audios(message) or []
+        text = message.content or ""
+        if audios:
+            text = f"{text}\n\n{_audio_marker(audios)}".strip()
+        return _build_user_message_with_images(text, _message_images(message))
     if message.role == "assistant":
         payload: dict[str, Any] = {
             "role": "assistant",
@@ -105,9 +108,45 @@ def _message_to_llm(message: CharacterForgeMessage) -> dict[str, Any] | None:
     return None
 
 
+def _message_audios(message: CharacterForgeMessage) -> list[ForgeAudioRef] | None:
+    refs: list[ForgeAudioRef] = []
+    for item in message.audios or []:
+        if not isinstance(item, dict):
+            continue
+        audio_key = item.get("audio_key")
+        if not isinstance(audio_key, str) or not audio_key:
+            continue
+        try:
+            duration = float(item.get("duration_seconds") or 0.0)
+        except (TypeError, ValueError):
+            duration = 0.0
+        refs.append(
+            ForgeAudioRef(
+                audio_key=audio_key,
+                name=str(item.get("name") or "")[:160],
+                duration_seconds=max(0.0, duration),
+            )
+        )
+    return refs or None
+
+
+def _audio_marker(audios: list[ForgeAudioRef]) -> str:
+    """Machine-readable hint so the model can address the recording by key."""
+
+    lines = []
+    for audio in audios:
+        lines.append(
+            f"- audio_key={audio.audio_key} | name={audio.name or '未命名录音'} "
+            f"| duration={audio.duration_seconds:.1f}s"
+        )
+    return "[用户上传了录音]\n" + "\n".join(lines)
+
+
 def _is_displayable(message: CharacterForgeMessage) -> bool:
     if message.role == "user":
-        return bool((message.content or "").strip())
+        return bool(
+            (message.content or "").strip() or message.audios or message.images
+        )
     if message.role == "assistant":
         return bool((message.content or "").strip()) or bool(message.ui_payloads)
     return False
@@ -315,6 +354,7 @@ class CharacterForgeService:
                         _client_ui_payloads(message.ui_payloads), character
                     ),
                     images=_message_images(message) or [],
+                    audios=_message_audios(message) or [],
                     created_at=message.created_at,
                 )
                 for message in messages
@@ -386,6 +426,7 @@ class CharacterForgeService:
         session_id: uuid.UUID,
         content: str,
         images: list[ChatImageRef] | None = None,
+        audios: list[ForgeAudioRef] | None = None,
     ) -> AsyncGenerator[str, None]:
         session = await self._require_session(user, session_id)
 
@@ -404,7 +445,7 @@ class CharacterForgeService:
         runtime.steers.clear()
         try:
             async for chunk in self._stream_reply_locked(
-                user, session, content, images
+                user, session, content, images, audios
             ):
                 yield chunk
         finally:
@@ -418,6 +459,7 @@ class CharacterForgeService:
         session: CharacterForgeSession,
         content: str,
         images: list[ChatImageRef] | None = None,
+        audios: list[ForgeAudioRef] | None = None,
     ) -> AsyncGenerator[str, None]:
         route = llm_registry.resolve_chat_route()
         if route is None or not route.api_key:
@@ -437,6 +479,7 @@ class CharacterForgeService:
             role="user",
             content=content,
             images=[image.model_dump() for image in images] if images else None,
+            audios=[audio.model_dump() for audio in audios] if audios else None,
         )
         if session.title == "新角色":
             await self._repo.touch_session(
@@ -666,6 +709,7 @@ class CharacterForgeService:
                         )
                         if outcome.ui_payload["type"] in {
                             "voice_preview",
+                            "voice_cloned",
                             "character_created",
                             "character_updated",
                         }:
@@ -803,6 +847,7 @@ class CharacterForgeService:
             display = {
                 "prompt-creation": "人设提示词",
                 "voice-creation": "音色创建",
+                "voice-clone": "音色克隆",
                 "avatar-creation": "头像生成",
             }.get(skill_name, "技能")
             return f"正在加载{display}技能"
@@ -819,6 +864,12 @@ class CharacterForgeService:
             return f"正在搜索：{query}" if query else "正在搜索"
         if name == "read_webpage":
             return "正在读取网页"
+        if name == "inspect_audio":
+            return "正在检查录音"
+        if name == "crop_audio":
+            return "正在裁剪录音"
+        if name == "clone_voice":
+            return "正在克隆音色"
         return "正在处理"
 
     @staticmethod
@@ -840,4 +891,14 @@ class CharacterForgeService:
             return f"找到 {len(result.get('results') or [])} 条结果"
         if name == "read_webpage":
             return "网页已读取"
+        if name == "inspect_audio":
+            duration = result.get("duration_seconds")
+            return f"录音 {duration} 秒" if duration else "录音已检查"
+        if name == "crop_audio":
+            duration = result.get("duration_seconds")
+            if result.get("cropped"):
+                return f"已裁到 {duration} 秒"
+            return f"{duration} 秒 · 无需裁剪"
+        if name == "clone_voice":
+            return "音色已生成"
         return "完成"

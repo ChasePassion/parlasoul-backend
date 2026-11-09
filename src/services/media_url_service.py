@@ -79,6 +79,31 @@ def original_object_key(image_key: str) -> str:
     return f"{image_key}/original"
 
 
+CHAT_AUDIO_PREFIX = "audios/chat/"
+
+
+def chat_audio_key(owner_id: str, audio_id: str) -> str:
+    return f"{CHAT_AUDIO_PREFIX}{owner_id}/{audio_id}"
+
+
+def validate_chat_audio_key_owner(audio_key: str | None, *, owner_id: str) -> str | None:
+    """Return the normalized audio key only when it belongs to ``owner_id``."""
+
+    if audio_key is None:
+        return None
+
+    normalized = audio_key.strip().strip("/")
+    if not normalized or ".." in normalized.split("/"):
+        return None
+    expected_prefix = chat_audio_key(owner_id, "")
+    if not normalized.startswith(expected_prefix):
+        return None
+    remainder = normalized[len(expected_prefix) :]
+    if not remainder or "/" in remainder:
+        return None
+    return normalized
+
+
 def variant_object_key(image_key: str, size: int) -> str:
     return f"{image_key}/{size}.avif"
 

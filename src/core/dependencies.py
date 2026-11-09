@@ -554,6 +554,21 @@ def get_upload_service(
     )
 
 
+def get_audio_media_service(
+    r2_storage: R2StorageService = Depends(get_r2_storage_service_provider),
+    local_store: LocalMediaStore = Depends(get_local_media_store_provider),
+    sync_worker: MediaSyncWorker = Depends(get_media_sync_worker_provider),
+):
+    """Centralized provider for AudioMediaService."""
+    from src.services.audio_media_service import AudioMediaService
+
+    return AudioMediaService(
+        r2_storage=r2_storage,
+        local_store=local_store,
+        sync_worker=sync_worker,
+    )
+
+
 async def get_chat_service(
     uow: UnitOfWork = Depends(get_uow),
     chat_repo: ChatRepository = Depends(get_chat_repository),
@@ -814,6 +829,8 @@ def get_character_forge_service(
     llm_gateway_service: LLMGatewayService = Depends(get_llm_gateway_service),
     tts_gateway_service: TTSGatewayService = Depends(get_tts_gateway_service),
     avatar_service=Depends(get_avatar_generation_service),
+    audio_service=Depends(get_audio_media_service),
+    voice_profile_service=Depends(get_voice_profile_service),
 ):
     """Centralized provider for CharacterForgeService."""
     from src.services.character_forge_service import CharacterForgeService
@@ -829,6 +846,8 @@ def get_character_forge_service(
             search_repository=search_repository,
             preview_store=preview_store,
             avatar_service=avatar_service,
+            audio_service=audio_service,
+            voice_profile_service=voice_profile_service,
         ),
         llm_gateway_service=llm_gateway_service,
         tts_gateway_service=tts_gateway_service,
@@ -869,6 +888,7 @@ __all__ = [
     "get_subscription_service",
     "get_wechat_payment_service",
     "get_upload_service",
+    "get_audio_media_service",
     "get_chat_service",
     "get_turn_service",
     "get_character_repository",

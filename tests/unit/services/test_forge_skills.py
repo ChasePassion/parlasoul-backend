@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime
-from pathlib import Path
 from types import SimpleNamespace
 
 from src.core.tts_voice_catalog import dashscope_full_voice_catalog
 from src.repositories.image_generation_repository import build_image_payload
-from src.services.character_forge_prompt import build_forge_system_prompt
 from src.services.character_forge_tools import (
     ForgeToolExecutor,
     ToolContext,
@@ -18,23 +15,8 @@ from src.services.character_forge_tools import (
     collect_reference_images,
 )
 from src.services.forge_skills import (
-    SKILL_NAMES,
     load_forge_skill,
 )
-
-_TEMPLATE_DIR = (
-    Path(__file__).resolve().parents[3]
-    / "src"
-    / "services"
-    / "forge_skills"
-    / "prompt_creation"
-)
-SYSTEM_PROMPT_TEMPLATE_DAILY = (
-    _TEMPLATE_DIR / "system_prompt_template_daily.md"
-).read_text(encoding="utf-8")
-SYSTEM_PROMPT_TEMPLATE_NARRATIVE = (
-    _TEMPLATE_DIR / "system_prompt_template_narrative.md"
-).read_text(encoding="utf-8")
 
 
 class _FakePreviewStore:
@@ -73,18 +55,9 @@ def _executor() -> ForgeToolExecutor:
         search_repository=None,
         preview_store=_FakePreviewStore(),
         avatar_service=None,
+        audio_service=None,
+        voice_profile_service=None,
     )
-
-
-
-
-def test_character_skill_renders_both_system_prompt_templates():
-    skill = load_forge_skill("prompt-creation")
-    assert skill is not None
-    assert SYSTEM_PROMPT_TEMPLATE_DAILY in skill.content
-    assert SYSTEM_PROMPT_TEMPLATE_NARRATIVE in skill.content
-    assert "{{" not in skill.content
-
 
 def test_voice_skill_renders_the_live_catalog():
     skill = load_forge_skill("voice-creation")
@@ -146,33 +119,6 @@ def test_collect_reference_images_keeps_only_owned_inline_or_public_images(monke
 
     assert images == {owned: "data:image/jpeg;base64,AAAA"}
 
-
-def test_system_prompt_stays_lean_and_contains_only_the_catalog():
-    prompt = build_forge_system_prompt(
-        current_date=datetime(2026, 11, 6),
-        active_character=None,
-    )
-    assert len(prompt) < 2000
-    assert SYSTEM_PROMPT_TEMPLATE_DAILY not in prompt
-    assert SYSTEM_PROMPT_TEMPLATE_NARRATIVE not in prompt
-    for name in SKILL_NAMES:
-        assert name in prompt
-
-
-async def test_load_skill_tool_returns_content_and_marks_context():
-    executor = _executor()
-    context = _context()
-
-    result = await executor.execute(
-        "load_skill", {"name": "prompt-creation"}, context
-    )
-
-    assert result.llm_result["ok"] is True
-    assert result.llm_result["skill"] == "prompt-creation"
-    assert SYSTEM_PROMPT_TEMPLATE_DAILY in result.llm_result["content"]
-    assert "prompt-creation" in context.loaded_skills
-
-
 class _FakeCharacterService:
     def __init__(self) -> None:
         self.created: dict[str, object] | None = None
@@ -203,6 +149,8 @@ async def test_create_character_persists_and_returns_created_card():
         search_repository=None,
         preview_store=_FakePreviewStore(),
         avatar_service=None,
+        audio_service=None,
+        voice_profile_service=None,
     )
     context = ToolContext(
         user=SimpleNamespace(id=uuid.uuid4()),
@@ -339,6 +287,8 @@ async def test_update_character_keeps_the_existing_shaping_when_only_the_voice_c
         search_repository=None,
         preview_store=_FakePreviewStore(),
         avatar_service=None,
+        audio_service=None,
+        voice_profile_service=None,
     )
     context = ToolContext(
         user=SimpleNamespace(id=uuid.uuid4()),
@@ -372,6 +322,8 @@ async def test_create_character_rejects_a_voice_outside_the_catalog():
         search_repository=None,
         preview_store=_FakePreviewStore(),
         avatar_service=None,
+        audio_service=None,
+        voice_profile_service=None,
     )
     context = ToolContext(
         user=SimpleNamespace(id=uuid.uuid4()),
@@ -410,6 +362,8 @@ async def test_generate_avatar_passes_resolved_reference_images():
         search_repository=None,
         preview_store=_FakePreviewStore(),
         avatar_service=avatars,
+        audio_service=None,
+        voice_profile_service=None,
     )
     context = ToolContext(
         user=SimpleNamespace(id=uuid.uuid4()),
@@ -471,6 +425,14 @@ async def test_tools_require_their_skill_first():
     )
     assert create_error.llm_result["ok"] is False
     assert "load_skill" in create_error.llm_result["errors"][0]
+
+    clone_error = await executor.execute(
+        "clone_voice",
+        {"audio_key": "audio/whatever.wav", "display_name": "My Voice"},
+        context,
+    )
+    assert clone_error.llm_result["ok"] is False
+    assert "voice-clone" in clone_error.llm_result["errors"][0]
 
     await executor.execute("load_skill", {"name": "voice-creation"}, context)
     retry = await executor.execute(

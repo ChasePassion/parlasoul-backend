@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 from src.api import deps
 from src.api.response import success_response
 from src.core.dependencies import (
+    get_audio_media_service,
     get_local_media_store_provider,
     get_media_cache_service_provider,
     get_r2_storage_service_provider,
@@ -19,12 +20,14 @@ from src.db.models import User
 from src.schemas.common import SuccessEnvelope
 from src.schemas.discover import DiscoverHeroImageUploadResponse
 from src.schemas.media import (
+    ChatAudioUploadResponse,
     ChatImageUploadResponse,
     CompleteUploadRequest,
     CompleteUploadResponse,
     PresignedUploadRequest,
     PresignedUploadResponse,
 )
+from src.services.audio_media_service import AudioMediaService
 from src.services.local_media_store import LocalMediaStore
 from src.services.media_cache_service import MediaCacheService
 from src.services.media_url_service import (
@@ -69,6 +72,21 @@ async def upload_chat_image(
         body=await file.read(),
         content_type=file.content_type,
         current_user=current_user,
+    )
+    return success_response(data, status_code=200)
+
+
+@router.post("/v1/uploads/audio", response_model=SuccessEnvelope[ChatAudioUploadResponse])
+async def upload_chat_audio(
+    file: UploadFile = File(...),
+    current_user: User = Depends(deps.get_current_user),
+    service: AudioMediaService = Depends(get_audio_media_service),
+) -> SuccessEnvelope[ChatAudioUploadResponse]:
+    data = await service.store_chat_audio(
+        owner_id=current_user.id,
+        body=await file.read(),
+        filename=file.filename,
+        content_type=file.content_type,
     )
     return success_response(data, status_code=200)
 

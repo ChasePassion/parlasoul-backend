@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import wave
 from io import BytesIO
@@ -127,8 +128,8 @@ def _build_repo_for_qwen3_stt(
 def _build_repo_for_clone() -> VoiceGatewayRepository:
     repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
     repo._api_key = "sk-test"
-    repo._voice_enrollment_model = "qwen-voice-enrollment"
-    repo._voice_clone_target_model = "qwen3-tts-vc-realtime-2026-01-15"
+    repo._voice_enrollment_model = "voice-enrollment"
+    repo._voice_clone_target_model = "cosyvoice-v3-flash"
     repo._tts_customization_api_url = "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/customization"
     repo._http_timeout_seconds = 30.0
     repo._timbre_list_doc_url = "https://help.aliyun.com/zh/model-studio/multimodal-timbre-list"
@@ -195,6 +196,54 @@ async def test_tts_connect_uses_model_query_param() -> None:
 
     assert captured["api_key"] == "sk-test"
     assert captured["url"] == "wss://example.com/tts?model=qwen3-tts-instruct-flash-realtime"
+
+
+@pytest.mark.asyncio
+async def test_cosyvoice_tts_uses_inference_protocol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = b"\xff\xfb\x90\x00"
+    ws = _WsStub(
+        recv_events=[
+            json.dumps({"header": {"event": "task-started"}}),
+            frame,
+            json.dumps({"header": {"event": "result-generated"}, "payload": {}}),
+            json.dumps({"header": {"event": "task-finished"}}),
+        ]
+    )
+    observation = _ObservationStub()
+    monkeypatch.setattr(
+        voice_gateway_module,
+        "_start_voice_model_observation",
+        lambda **kwargs: observation,
+    )
+    captured: dict[str, str] = {}
+    repo = _build_repo_for_tts(ws, captured=captured)
+    repo._tts_inference_ws_url = "wss://example.com/inference"
+
+    chunks = []
+    async for chunk in repo.stream_tts_audio_base64(
+        text="Hello there.",
+        audio_format="mp3",
+        provider_voice_id="cosyvoice-v3-flash-demo",
+        provider_model="cosyvoice-v3-flash",
+    ):
+        chunks.append(chunk)
+
+    assert captured["url"] == "wss://example.com/inference"
+    assert chunks == [
+        (base64.b64encode(frame).decode("ascii"), "audio/mpeg"),
+    ]
+    run_task = json.loads(ws.sent_payloads[0])
+    assert run_task["header"]["action"] == "run-task"
+    assert run_task["payload"]["model"] == "cosyvoice-v3-flash"
+    assert run_task["payload"]["parameters"]["voice"] == "cosyvoice-v3-flash-demo"
+    assert run_task["payload"]["parameters"]["text_type"] == "PlainText"
+    actions = [
+        json.loads(payload)["header"]["action"] for payload in ws.sent_payloads[1:]
+    ]
+    assert actions == ["continue-task", "finish-task"]
+    assert observation.ended is True
 
 
 @pytest.mark.asyncio
@@ -591,8 +640,8 @@ async def test_create_voice_clone_calls_dashscope_customization_endpoint() -> No
         return {
             "request_id": "req-create-1",
             "output": {
-                "voice": "bob_new",
-                "target_model": "qwen3-tts-vc-realtime-2026-01-15",
+                "voice_id": "bob_new",
+                "target_model": "cosyvoice-v3-flash",
             },
         }
 
@@ -622,8 +671,8 @@ async def test_create_voice_clone_calls_dashscope_customization_endpoint() -> No
         monkeypatch.undo()
 
     assert captured_start["name"] == "voice.clone.create"
-    assert captured_start["model"] == "qwen-voice-enrollment"
-    assert captured_start["input_payload"]["target_model"] == "qwen3-tts-vc-realtime-2026-01-15"
+    assert captured_start["model"] == "voice-enrollment"
+    assert captured_start["input_payload"]["target_model"] == "cosyvoice-v3-flash"
     assert observation.ended is True
     assert observation.updates[-1]["usage_details"] == {
         "input": 1,
@@ -631,16 +680,20 @@ async def test_create_voice_clone_calls_dashscope_customization_endpoint() -> No
     }
     assert observation.updates[-1]["metadata"]["billing_unit"] == "SECONDS"
     assert observation.updates[-1]["metadata"]["target_model"] == (
-        "dashscope/qwen3-tts-vc-realtime-2026-01-15"
+        "dashscope/cosyvoice-v3-flash"
     )
-    assert captured_payload["model"] == "qwen-voice-enrollment"
-    assert captured_payload["input"]["action"] == "create"
-    assert captured_payload["input"]["target_model"] == "qwen3-tts-vc-realtime-2026-01-15"
-    assert captured_payload["input"]["audio"]["data"].startswith("data:audio/wav;base64,")
-    assert captured_payload["input"]["language"] == "zh"
+    assert captured_payload["model"] == "voice-enrollment"
+    assert captured_payload["input"]["action"] == "create_voice"
+    assert captured_payload["input"]["target_model"] == "cosyvoice-v3-flash"
+    assert captured_payload["input"]["audio"].startswith("data:audio/wav;base64,")
+    assert captured_payload["input"]["language_hints"] == ["zh"]
+    assert captured_payload["input"]["enable_preprocess"] is True
+    assert captured_payload["input"]["enable_volume_normalization"] == "true"
+    assert captured_payload["input"]["max_prompt_audio_length"] > 0
+    assert captured_payload["input"]["prefix"].startswith("p")
     assert result["provider_voice_id"] == "bob_new"
     assert result["provider_status"] == "active"
-    assert result["provider_model"] == "qwen3-tts-vc-realtime-2026-01-15"
+    assert result["provider_model"] == "cosyvoice-v3-flash"
     assert result["provider_request_id"] == "req-create-1"
 
 
@@ -702,16 +755,16 @@ async def test_delete_voice_clone_calls_dashscope_customization_endpoint() -> No
         monkeypatch.undo()
 
     assert captured_start["name"] == "voice.clone.delete"
-    assert captured_start["model"] == "qwen-voice-enrollment"
+    assert captured_start["model"] == "voice-enrollment"
     assert observation.ended is True
     assert observation.updates[-1]["usage_details"] == {
         "input": 1,
         "total": 1,
         "unit": "REQUESTS",
     }
-    assert captured_payload["model"] == "qwen-voice-enrollment"
-    assert captured_payload["input"]["action"] == "delete"
-    assert captured_payload["input"]["voice"] == "bob_new"
+    assert captured_payload["model"] == "voice-enrollment"
+    assert captured_payload["input"]["action"] == "delete_voice"
+    assert captured_payload["input"]["voice_id"] == "bob_new"
     assert result == {"provider_request_id": "req-del-1"}
 
 

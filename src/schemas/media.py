@@ -22,6 +22,14 @@ class AvatarUrls(SQLModel):
     xl: str
 
 
+class ChatAudioUploadResponse(SQLModel):
+    audio_key: str
+    duration_seconds: float
+    size_bytes: int
+    mime_type: str
+    name: str
+
+
 class ChatImageUploadResponse(SQLModel):
     image_key: str
     original_url: str

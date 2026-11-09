@@ -22,6 +22,7 @@ from src.db.models import (
 from src.repositories.deepseek_search_repository import DeepSeekSearchRepository
 from src.schemas.character import CharacterCreate, CharacterUpdate
 from src.schemas.media import MediaUploadKind
+from src.services.audio_media_service import AudioMediaService
 from src.services.avatar_generation_service import AvatarGenerationService
 from src.services.character_service import CharacterService
 from src.services.chat_service import ChatService
@@ -31,13 +32,18 @@ from src.services.media_url_service import (
     build_r2_public_url,
     original_object_key,
     validate_avatar_image_key_owner,
+    validate_chat_audio_key_owner,
 )
+from src.services.voice_profile_service import VoiceProfileService
 
 logger = logging.getLogger(__name__)
 
 _MAX_SAMPLE_CHARS = 200
 _MIN_SAMPLE_CHARS = 10
 _MAX_REFERENCE_IMAGES = 3
+_DEFAULT_CLONE_PREVIEW_TEXT = (
+    "Hi, this is my cloned voice. How does it sound?"
+)
 
 VOICE_CATALOG = {item.provider_voice_id: item for item in dashscope_full_voice_catalog()}
 
@@ -112,6 +118,13 @@ def _voice_binding_properties(voice_id_schema: dict[str, Any]) -> dict[str, Any]
             "maximum": 1.15,
             "description": "音调。0.95 略低 / 1.0 自然 / 1.05 略高。调低会同时变慢",
         },
+        "voice_profile_id": {
+            "type": "string",
+            "description": (
+                "clone_voice 返回的 voice_profile_id。"
+                "用刚克隆的音色建角色时填这个，不需要再填 voice_base_id。"
+            ),
+        },
     }
 
 
@@ -142,6 +155,7 @@ def build_tool_schemas(
                     "加载对应技能的完整技能说明。"
                     "设计角色人设、编写 system_prompt 前必须先加载 prompt-creation；"
                     "选择音色、调整参数或生成试听前必须先加载 voice-creation；"
+                    "克隆用户自己的声音前必须先加载 voice-clone；"
                     "生成或更换头像前必须先加载 avatar-creation。"
                 ),
                 "parameters": {
@@ -279,7 +293,6 @@ def build_tool_schemas(
                         "name",
                         "description",
                         "system_prompt",
-                        "voice_base_id",
                     ],
                     "additionalProperties": False,
                 },
@@ -347,6 +360,101 @@ def build_tool_schemas(
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "inspect_audio",
+                "description": (
+                    "检查用户上传的录音：时长、采样率、音量水平、最长停顿多长、"
+                    "以及建议从第几秒开始截取。克隆音色之前先调用它，再决定怎么裁。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "audio_key": {
+                            "type": "string",
+                            "description": "用户消息里 [用户上传了录音] 标记中的 audio_key",
+                        },
+                        "target_seconds": {
+                            "type": "number",
+                            "description": "计划截取的秒数，用来计算建议起点，默认 10",
+                            "minimum": 3,
+                            "maximum": 30,
+                        },
+                    },
+                    "required": ["audio_key"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "crop_audio",
+                "description": (
+                    "从录音里截出一段干净片段用于克隆。不传 start_seconds 用建议值，"
+                    "不传 duration_seconds 用 10 秒。返回新的 audio_key，交给 clone_voice 使用。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "audio_key": {"type": "string"},
+                        "start_seconds": {
+                            "type": "number",
+                            "minimum": 0,
+                            "description": "从第几秒开始，不传则自动挑最长停顿之后的起点",
+                        },
+                        "duration_seconds": {
+                            "type": "number",
+                            "minimum": 3,
+                            "maximum": 30,
+                            "description": "截多长，默认 10 秒",
+                        },
+                    },
+                    "required": ["audio_key"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "clone_voice",
+                "description": (
+                    "用一段录音克隆出专属音色。调用前先加载 voice-clone 技能。"
+                    "audio_key 用 crop_audio 返回的新 key。"
+                    "成功后返回 voice_profile_id，可以交给 create_character 绑定。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "audio_key": {"type": "string"},
+                        "display_name": {
+                            "type": "string",
+                            "description": (
+                                "音色名字，必须用英文（2-4 个单词），"
+                                "例如 Warm Narrator、My Voice"
+                            ),
+                            "minLength": 1,
+                            "maxLength": 40,
+                        },
+                        "preview_text": {
+                            "type": "string",
+                            "description": (
+                                "试听时念的英文文案，最多 120 字符，不传用默认英文短句"
+                            ),
+                            "maxLength": 120,
+                        },
+                        "language_hint": {
+                            "type": "string",
+                            "description": "录音主要语言，zh 或 en；不确定就不传",
+                        },
+                    },
+                    "required": ["audio_key", "display_name"],
+                    "additionalProperties": False,
+                },
+            },
+        },
     ]
 
 
@@ -376,7 +484,15 @@ def _require_skill(context: ToolContext, name: str) -> ToolOutcome | None:
 
 
 def _voice_summary(voice_id: str) -> dict[str, Any]:
-    item = VOICE_CATALOG[voice_id]
+    item = VOICE_CATALOG.get(voice_id)
+    if item is None:
+        # Cloned voices carry a provider voice id that is not in the system catalog.
+        return {
+            "provider_voice_id": voice_id,
+            "display_name": None,
+            "usage_hint": None,
+            "gender": None,
+        }
     return {
         "provider_voice_id": item.provider_voice_id,
         "display_name": item.display_name,
@@ -389,12 +505,33 @@ def _field_error(errors: list[str]) -> ToolOutcome:
     return ToolOutcome(llm_result={"ok": False, "errors": errors})
 
 
+def _optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_english_text(value: str) -> bool:
+    """Cloned voice names and preview lines are English-only."""
+
+    letters = [char for char in value if not char.isspace()]
+    if not letters:
+        return False
+    return all(ord(char) < 128 for char in letters)
+
+
 @dataclass(frozen=True)
 class ResolvedVoice:
     """The voice a character should be bound to."""
 
     base_voice_id: str
     profile: dict[str, Any]
+    provider: str = DEFAULT_SYSTEM_TTS_PROVIDER
+    model: str | None = None
+    source_type: str = "system"
 
 
 def _resolve_voice_arguments(
@@ -463,12 +600,16 @@ class ForgeToolExecutor:
         search_repository: DeepSeekSearchRepository,
         preview_store: ForgePreviewStore,
         avatar_service: AvatarGenerationService,
+        audio_service: AudioMediaService,
+        voice_profile_service: VoiceProfileService,
     ):
         self._character_service = character_service
         self._chat_service = chat_service
         self._search = search_repository
         self._previews = preview_store
         self._avatars = avatar_service
+        self._audios = audio_service
+        self._voices = voice_profile_service
 
     async def execute(
         self, tool_name: str, arguments: dict[str, Any], context: ToolContext
@@ -481,6 +622,9 @@ class ForgeToolExecutor:
             "update_character": self._update_character,
             "search_web": self._search_web,
             "read_webpage": self._read_webpage,
+            "inspect_audio": self._inspect_audio,
+            "crop_audio": self._crop_audio,
+            "clone_voice": self._clone_voice,
         }
         handler = handlers.get(tool_name)
         if handler is None:
@@ -585,6 +729,199 @@ class ForgeToolExecutor:
             ui_payload=ui_payload,
         )
 
+    async def _resolve_voice_for_character(
+        self,
+        arguments: dict[str, Any],
+        context: ToolContext,
+        *,
+        required: bool,
+        base_profile: dict[str, Any] | None = None,
+    ) -> tuple[ResolvedVoice | None, ToolOutcome | None]:
+        """Prefer a cloned voice when the agent passes ``voice_profile_id``."""
+
+        raw_profile_id = str(arguments.get("voice_profile_id") or "").strip()
+        if raw_profile_id:
+            try:
+                voice_uuid = uuid.UUID(raw_profile_id)
+            except ValueError:
+                return None, _field_error(
+                    ["voice_profile_id 不是合法的 id，请使用 clone_voice 返回的值。"]
+                )
+            profile = await self._voices.get_voice_by_id(
+                voice_id=voice_uuid, current_user=context.user
+            )
+            shaping = normalize_voice_profile(
+                {
+                    key: value
+                    for key, value in (base_profile or {}).items()
+                    if key in ("speech_rate", "volume", "pitch_rate")
+                }
+            )
+            return (
+                ResolvedVoice(
+                    base_voice_id=profile.provider_voice_id,
+                    profile=shaping.to_dict(),
+                    provider=profile.provider,
+                    model=profile.provider_model,
+                    source_type="clone",
+                ),
+                None,
+            )
+
+        return _resolve_voice_arguments(
+            arguments, required=required, base_profile=base_profile
+        )
+
+    def _resolve_audio_key(
+        self, arguments: dict[str, Any], context: ToolContext
+    ) -> tuple[str, ToolOutcome | None]:
+        raw = str(arguments.get("audio_key") or "").strip()
+        audio_key = validate_chat_audio_key_owner(raw, owner_id=str(context.user.id))
+        if audio_key is None:
+            return "", _field_error(
+                ["audio_key 无效或不属于当前用户。请使用用户消息里给出的 audio_key。"]
+            )
+        return audio_key, None
+
+    async def _inspect_audio(
+        self, arguments: dict[str, Any], context: ToolContext
+    ) -> ToolOutcome:
+        audio_key, error = self._resolve_audio_key(arguments, context)
+        if error is not None:
+            return error
+
+        fmt = AudioMediaService.format_from_key(audio_key)
+        body = await self._audios.load_chat_audio(audio_key)
+        target = float(
+            arguments.get("target_seconds") or settings.VOICE_CLONE_MAX_PROMPT_SECONDS
+        )
+        analysis = await self._audios.analyze(body, fmt, target_seconds=target)
+        return ToolOutcome(
+            llm_result={
+                "ok": True,
+                "audio_key": audio_key,
+                "duration_seconds": round(analysis.duration_seconds, 2),
+                "loudness_db": round(analysis.rms_db_median, 1),
+                "quiet_ratio": round(analysis.quiet_ratio, 3),
+                "longest_pause_seconds": round(analysis.longest_quiet_gap_seconds, 2),
+                "suggested_start_seconds": round(analysis.suggested_start_seconds, 2),
+                "suggested_duration_seconds": round(
+                    analysis.suggested_duration_seconds, 2
+                ),
+                "note": (
+                    "裁剪时调用 crop_audio；不传参数就用这里的建议值。"
+                    "录音里有明显停顿就优先后半段，选择权在你。"
+                ),
+            }
+        )
+
+    async def _crop_audio(
+        self, arguments: dict[str, Any], context: ToolContext
+    ) -> ToolOutcome:
+        audio_key, error = self._resolve_audio_key(arguments, context)
+        if error is not None:
+            return error
+
+        fmt = AudioMediaService.format_from_key(audio_key)
+        body = await self._audios.load_chat_audio(audio_key)
+        cropped = await self._audios.crop(
+            body,
+            fmt,
+            start_seconds=_optional_float(arguments.get("start_seconds")),
+            duration_seconds=_optional_float(arguments.get("duration_seconds")),
+        )
+        stored = await self._audios.store_chat_audio(
+            owner_id=context.user.id,
+            body=cropped.body,
+            filename=f"clip.{cropped.format}",
+            content_type=cropped.content_type,
+        )
+        return ToolOutcome(
+            llm_result={
+                "ok": True,
+                "audio_key": stored.audio_key,
+                "duration_seconds": round(stored.duration_seconds, 2),
+                "cropped": cropped.cropped,
+                "note": "把返回的 audio_key 交给 clone_voice。",
+            }
+        )
+
+    async def _clone_voice(
+        self, arguments: dict[str, Any], context: ToolContext
+    ) -> ToolOutcome:
+        missing = _require_skill(context, "voice-clone")
+        if missing is not None:
+            return missing
+
+        audio_key, error = self._resolve_audio_key(arguments, context)
+        if error is not None:
+            return error
+
+        display_name = str(arguments.get("display_name") or "").strip()
+        if not display_name:
+            return _field_error(["display_name 不能为空。"])
+        if not _is_english_text(display_name):
+            return _field_error(
+                ["display_name 必须是英文，例如 Warm Narrator。请换一个英文名字再调用。"]
+            )
+        preview_text = (
+            str(arguments.get("preview_text") or "").strip()
+            or _DEFAULT_CLONE_PREVIEW_TEXT
+        )
+        if not _is_english_text(preview_text):
+            # 试听文案对用户不可见地回退到默认英文句，避免多绕一轮工具调用。
+            preview_text = _DEFAULT_CLONE_PREVIEW_TEXT
+        language_hint = str(arguments.get("language_hint") or "").strip() or None
+
+        fmt = AudioMediaService.format_from_key(audio_key)
+        body = await self._audios.load_chat_audio(audio_key)
+        info = await self._audios.probe_info(body, fmt)
+        try:
+            accepted = await self._voices.create_clone(
+                current_user=context.user,
+                provider="dashscope",
+                display_name=display_name,
+                preview_text=preview_text,
+                source_audio_bytes=body,
+                source_audio_format=fmt,
+                description=None,
+                language_hint=language_hint,
+                idempotency_key=None,
+            )
+        except APIError as exc:
+            if exc.status_code >= 500:
+                logger.warning("voice clone upstream failed: %s", exc.message)
+                return _field_error(
+                    [
+                        f"音色服务暂时不可用（{exc.code}）。不要再重试这一次调用，"
+                        "直接用一句人话告诉用户稍后再试，或者先用系统音色。"
+                    ]
+                )
+            raise
+        profile = accepted.voice
+        preview_url = f"/v1/voices/{profile.id}/preview/audio?audio_format=mp3"
+        ui_payload = {
+            "type": "voice_cloned",
+            "voice_profile_id": profile.id,
+            "display_name": profile.display_name,
+            "sample_text": profile.preview_text or preview_text,
+            "preview_url": preview_url,
+            "duration_seconds": round(info.duration_seconds, 1),
+        }
+        return ToolOutcome(
+            llm_result={
+                "ok": True,
+                "voice_profile_id": profile.id,
+                "display_name": profile.display_name,
+                "sample_text": ui_payload["sample_text"],
+                "note": (
+                    "音色卡已经展示给用户。接着问用户要不要用这个音色建角色；"
+                    "要的话调 create_character 并带上 voice_profile_id。"
+                ),
+            },
+            ui_payload=ui_payload,
+        )
+
     async def _generate_avatar(
         self, arguments: dict[str, Any], context: ToolContext
     ) -> ToolOutcome:
@@ -643,9 +980,12 @@ class ForgeToolExecutor:
                 ["当前会话已经有角色。请调用 update_character 修改，不要重复创建。"]
             )
 
-        voice, voice_error = _resolve_voice_arguments(arguments, required=True)
+        voice, voice_error = await self._resolve_voice_for_character(
+            arguments, context, required=True
+        )
         if voice_error is not None:
             return voice_error
+        assert voice is not None
 
         name = str(arguments.get("name") or "").strip()
         description = str(arguments.get("description") or "").strip()
@@ -675,10 +1015,10 @@ class ForgeToolExecutor:
             system_prompt=system_prompt,
             greeting_message=greeting_message,
             avatar_image_key=avatar_image_key,
-            voice_provider=DEFAULT_SYSTEM_TTS_PROVIDER,
-            voice_model=settings.DASHSCOPE_TTS_MODEL,
+            voice_provider=voice.provider,
+            voice_model=voice.model or settings.DASHSCOPE_TTS_MODEL,
             voice_provider_voice_id=voice.base_voice_id,
-            voice_source_type="system",
+            voice_source_type=voice.source_type,
             voice_profile=voice.profile,
         )
         character = await self._character_service.create_character(
@@ -766,18 +1106,18 @@ class ForgeToolExecutor:
             )
             base_profile = current.voice_profile or {}
 
-        voice, voice_error = _resolve_voice_arguments(
-            arguments, required=False, base_profile=base_profile
+        voice, voice_error = await self._resolve_voice_for_character(
+            arguments, context, required=False, base_profile=base_profile
         )
         if voice_error is not None:
             return voice_error
         if voice is not None:
             update_fields.update(
                 {
-                    "voice_provider": DEFAULT_SYSTEM_TTS_PROVIDER,
-                    "voice_model": settings.DASHSCOPE_TTS_MODEL,
+                    "voice_provider": voice.provider,
+                    "voice_model": voice.model or settings.DASHSCOPE_TTS_MODEL,
                     "voice_provider_voice_id": voice.base_voice_id,
-                    "voice_source_type": "system",
+                    "voice_source_type": voice.source_type,
                     "voice_profile": voice.profile,
                 }
             )

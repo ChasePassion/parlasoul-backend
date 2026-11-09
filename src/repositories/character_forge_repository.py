@@ -89,6 +89,7 @@ class CharacterForgeRepository:
         tool_name: str | None = None,
         ui_payloads: list[dict[str, Any]] | None = None,
         images: list[dict[str, Any]] | None = None,
+        audios: list[dict[str, Any]] | None = None,
     ) -> CharacterForgeMessage:
         message = CharacterForgeMessage(
             session_id=session_id,
@@ -100,6 +101,7 @@ class CharacterForgeRepository:
             tool_name=tool_name,
             ui_payloads=ui_payloads or [],
             images=images,
+            audios=audios,
         )
         self._db.add(message)
         await self._db.commit()
