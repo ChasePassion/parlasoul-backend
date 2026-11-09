@@ -6,6 +6,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
 from src.core.exceptions import APIError as APIError
+from src.core.logging_context import get_request_id
 
 
 def success_response(data: Any = None, status_code: int = 200, message: str = "ok") -> JSONResponse:
@@ -24,13 +25,27 @@ def no_content_response() -> Response:
     return Response(status_code=204)
 
 
-def error_body(status_code: int, code: str, message: str) -> dict[str, Any]:
-    """Build standard error response body."""
-    return {
+def error_body(
+    status_code: int,
+    code: str,
+    message: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Build standard error response body.
+
+    ``request_id`` lets users report a reference that can be correlated with
+    server logs; it is the only technical identifier exposed to clients.
+    """
+    body: dict[str, Any] = {
         "code": code,
         "message": message,
         "status": status_code,
     }
+    request_id = get_request_id()
+    if request_id:
+        body["request_id"] = request_id
+    body.update(extra)
+    return body
 
 
 SSE_HEADERS: dict[str, str] = {

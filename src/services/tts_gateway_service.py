@@ -176,10 +176,11 @@ class TTSGatewayService:
 
                 return connect
             except Exception as exc:
+                logger.exception("websockets package availability check failed: %s", exc)
                 raise APIError(
                     status_code=503,
                     code="voice_dependency_missing",
-                    message=f"dependency unavailable: websockets package is missing; err={exc}",
+                    message="dependency unavailable: websockets package is missing",
                 )
 
     def _connect(self, url: str, *, api_key: str) -> Any:
@@ -492,17 +493,24 @@ class TTSGatewayService:
         status_code, status_message, upstream_code = _extract_minimax_error(payload)
         if status_code in (None, 0) and event not in {"error", "task_failed"}:
             return
+        if status_message:
+            logger.warning(
+                "MiniMax tts upstream error: status=%s code=%s message=%s",
+                status_code,
+                upstream_code,
+                status_message,
+            )
         message_parts = [f"upstream error: minimax tts {default_message}"]
         if status_code is not None:
             message_parts.append(f"upstream_status={status_code}")
         if upstream_code:
             message_parts.append(f"upstream_code={upstream_code}")
-        if status_message:
-            message_parts.append(f"upstream_message={status_message}")
         raise APIError(
             status_code=502,
             code="tts_upstream_error",
             message="; ".join(message_parts),
+            upstream_code=upstream_code,
+            upstream_message=status_message,
         )
 
     @staticmethod
@@ -1372,7 +1380,7 @@ class TTSGatewayService:
             raise APIError(
                 status_code=502,
                 code="tts_upstream_error",
-                message=f"upstream error: minimax tts service request failed; err={exc}",
+                message="upstream error: minimax tts service request failed",
             ) from exc
 
     async def _stream_minimax_segments(
@@ -1656,7 +1664,7 @@ class TTSGatewayService:
             raise APIError(
                 status_code=502,
                 code="tts_upstream_error",
-                message=f"upstream error: minimax segmented tts service request failed; err={exc}",
+                message="upstream error: minimax segmented tts service request failed",
             ) from exc
         finally:
             if segment_counter is not None:

@@ -1,4 +1,4 @@
-"""Turn-steering semantics for the character-forge agent loop."""
+"""Agent-loop semantics for the character-forge: steering and step budget."""
 
 from __future__ import annotations
 
@@ -325,3 +325,44 @@ async def test_no_tool_reply_continues_when_steer_is_pending(monkeypatch):
         "user",
         "assistant",
     ]
+
+
+async def test_agent_loop_has_no_step_cap(monkeypatch):
+    """The agent may keep working for as many rounds as the flow needs."""
+    monkeypatch.setattr(
+        llm_registry,
+        "resolve_chat_route",
+        lambda: SimpleNamespace(api_key="test", provider="test", model="test"),
+    )
+    tool_rounds = [
+        [
+            {
+                "type": "tool_calls",
+                "calls": [
+                    {
+                        "id": f"call_{index}",
+                        "name": "search_web",
+                        "arguments": '{"query":"资料"}',
+                    }
+                ],
+            }
+        ]
+        for index in range(7)
+    ]
+    service, repo, gateway, user, session, _tools = _build(
+        tool_rounds + [[{"type": "text", "text": "全部做完了。"}]]
+    )
+
+    events = [
+        _parse(chunk)
+        async for chunk in service.stream_reply(user, session.id, "创建一个角色")
+    ]
+
+    assert len(gateway.calls) == 8
+    finished = [event for event in events if event["type"] == "tool_finished"]
+    assert len(finished) == 7
+    assert all(event["ok"] for event in finished)
+    assert events[-1]["type"] == "done"
+    assert "全部做完了。" in "".join(
+        event["content"] for event in events if event["type"] == "chunk"
+    )

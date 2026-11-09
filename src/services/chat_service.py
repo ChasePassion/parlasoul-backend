@@ -20,6 +20,7 @@ from typing import Any
 
 from src.api.response import APIError
 from src.core.config import settings as app_settings
+from src.core.logging_context import get_request_id
 from src.core.uow import UnitOfWork
 from src.db.models import (
     AuthorType,
@@ -191,6 +192,8 @@ def _sanitize_candidate_extra(
         return cleaned
 
     filtered = dict(extra)
+    # Historical rows may still carry raw exception text; never expose it.
+    filtered.pop("error_message", None)
     reply_card_payload = filtered.get("reply_card")
     if reply_card_payload is not None:
         filtered["reply_card"] = _strip_reply_card_sentence_ipa(reply_card_payload)
@@ -1074,7 +1077,11 @@ class ChatService:
                 message=message,
                 partial_content=accumulated,
             )
-            return _sse_event({"type": "error", "code": code, "message": message})
+            frame = {"type": "error", "code": code, "message": message}
+            request_id = get_request_id()
+            if request_id:
+                frame["request_id"] = request_id
+            return _sse_event(frame)
 
         try:
             t_obs_ctx = time.monotonic()
@@ -1762,26 +1769,25 @@ class ChatService:
             )
 
         except LLMFirstChunkTimeoutError as e:
-            message = (
-                "upstream timeout: llm stream did not produce the first chunk in time; "
-                f"model={e.model}; timeout_s={e.timeout_s:.1f}"
+            logger.warning(
+                "LLM first chunk timeout: model=%s timeout_s=%.1f",
+                e.model,
+                e.timeout_s,
             )
+            message = "upstream timeout: llm stream did not produce the first chunk in time"
             yield await _stream_error_frame("llm_stream_first_chunk_timeout", message)
         except LLMAuthenticationError as e:
             message = e.public_message()
             yield await _stream_error_frame("llm_service_error", message)
-        except LLMCallError as e:
-            message = (
-                "upstream error: llm request failed after retries; "
-                f"model={e.model}; attempts={e.attempts}"
-            )
+        except LLMCallError:
+            message = "upstream error: llm request failed after retries"
             yield await _stream_error_frame("llm_service_error", message)
         except Exception as e:
             logger.exception(
                 "Chat stream error user=%s chat=%s has_images=%s error_type=%s: %s",
                 current_user.id, prep.chat_id, prep.has_images, type(e).__name__, e,
             )
-            message = f"chat stream failed: {type(e).__name__} — {e}"
+            message = "chat stream failed: unexpected streaming error"
             yield await _stream_error_frame(
                 "chat_stream_failed", message, error_type=type(e).__name__
             )
@@ -2132,7 +2138,8 @@ class ChatService:
                 cand.content = partial_content or ""
                 cand.is_final = True
                 extra = dict(cand.extra or {})
-                extra.update({"error_code": code, "error_message": message})
+                extra.pop("error_message", None)
+                extra.update({"error_code": code})
                 cand.extra = extra
 
             if turn:

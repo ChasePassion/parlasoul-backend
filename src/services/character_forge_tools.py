@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -44,6 +45,23 @@ _MAX_REFERENCE_IMAGES = 3
 _DEFAULT_CLONE_PREVIEW_TEXT = (
     "Hi, this is my cloned voice. How does it sound?"
 )
+
+# Guidance the agent reads after an upstream refusal. The upstream reason
+# itself is prepended by ``_upstream_failure_errors``; these strings only
+# say what the agent can do next.
+_AVATAR_FAILURE_GUIDANCE: dict[str, str] = {
+    "DataInspectionFailed": (
+        "参考图被上游内容审核拒绝，含清晰可识别的真人面部最常见。"
+        "请改用纯文字描述重新生成（不要传 reference_image_keys），"
+        "或者告诉用户这张参考图用不了，请他换一张。"
+    ),
+}
+_AVATAR_FAILURE_FALLBACK = (
+    "请调整描述或参考图再试一次；连续失败就告诉用户头像暂时生成不了，"
+    "先不带头像继续创建角色。"
+)
+_SEARCH_FAILURE_FALLBACK = "请换一个关键词或来源再搜一次，或基于已有信息继续。"
+_FETCH_FAILURE_FALLBACK = "这个网址可能抓不到内容，请换一个来源再试，或基于已有信息继续。"
 
 VOICE_CATALOG = {item.provider_voice_id: item for item in dashscope_full_voice_catalog()}
 
@@ -469,8 +487,6 @@ class ToolOutcome:
 class ToolContext:
     user: User
     session: CharacterForgeSession
-    search_calls: list[int] = field(default_factory=list)
-    avatar_calls: list[int] = field(default_factory=list)
     loaded_skills: set[str] = field(default_factory=set)
     reference_images: dict[str, str] = field(default_factory=dict)
 
@@ -503,6 +519,98 @@ def _voice_summary(voice_id: str) -> dict[str, Any]:
 
 def _field_error(errors: list[str]) -> ToolOutcome:
     return ToolOutcome(llm_result={"ok": False, "errors": errors})
+
+
+_MAX_MODEL_ERROR_CHARS = 10_000
+
+
+def _truncate_model_error(text: str) -> str:
+    """Keep long upstream errors readable for the model without unbounded input."""
+
+    if len(text) <= _MAX_MODEL_ERROR_CHARS:
+        return text
+    half = _MAX_MODEL_ERROR_CHARS // 2
+    return f"{text[:half]}\n...[truncated]...\n{text[-half:]}"
+
+
+def _exception_chain_messages(exc: BaseException) -> list[str]:
+    """Collect the original messages from an exception and its cause chain."""
+
+    messages: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        text = str(current).strip()
+        if text and text not in messages:
+            messages.append(text)
+        current = current.__cause__ or current.__context__
+    return messages
+
+
+def _tool_error_model_content(
+    exc: BaseException,
+    *,
+    guidance: str | None = None,
+) -> str:
+    """Raw error detail for the agent only; never rendered in the user UI.
+
+    Mirrors ZCode's tool error contract: ``errors`` is the short channel shown
+    in the tool chip, while ``model_content`` keeps the upstream/cause text so
+    the agent can explain and recover from the real failure.
+    """
+
+    lines: list[str] = []
+    if isinstance(exc, APIError):
+        lines.extend(
+            [
+                "type=APIError",
+                f"code={exc.code}",
+                f"status={exc.status_code}",
+                f"message={exc.message}",
+            ]
+        )
+        if exc.upstream_code:
+            lines.append(f"upstream_code={exc.upstream_code}")
+        if exc.upstream_message:
+            lines.append(f"upstream_message={exc.upstream_message}")
+        causes = _exception_chain_messages(exc)[1:]
+    else:
+        lines.append(f"type={type(exc).__name__}")
+        causes = _exception_chain_messages(exc)
+
+    for cause in causes:
+        lines.append(f"cause={cause}")
+    if guidance:
+        lines.append(f"guidance={guidance}")
+
+    body = _truncate_model_error("\n".join(lines))
+    return f"<tool_use_error>\n{body}\n</tool_use_error>"
+
+
+def _upstream_failure_result(
+    display_message: str,
+    exc: APIError,
+    *,
+    guidance: dict[str, str] | None = None,
+    fallback: str,
+) -> dict[str, Any]:
+    """Build the tool result for an upstream refusal.
+
+    The result carries two channels, the same split ZCode uses for tool
+    errors. ``errors`` keeps the message the user already sees in the tool
+    chip, unchanged. ``model_content`` carries the original upstream reason:
+    only the model reads it, and it is what lets the agent explain what
+    actually failed instead of guessing at it.
+    """
+    hint = fallback
+    if guidance:
+        hint = guidance.get(exc.upstream_code or "") or fallback
+    return {
+        "ok": False,
+        "errors": [display_message],
+        "model_content": _tool_error_model_content(exc, guidance=hint),
+    }
 
 
 def _optional_float(value: Any) -> float | None:
@@ -631,14 +739,47 @@ class ForgeToolExecutor:
             return _field_error([f"未知工具：{tool_name}"])
         try:
             return await handler(arguments, context)
+        except asyncio.CancelledError:
+            raise
         except APIError as exc:
-            return ToolOutcome(llm_result={"ok": False, "errors": [exc.message]})
+            logger.warning(
+                "Character forge tool failed: tool=%s code=%s status=%s message=%s",
+                tool_name,
+                exc.code,
+                exc.status_code,
+                exc.message,
+            )
+            return ToolOutcome(
+                llm_result={
+                    "ok": False,
+                    "errors": [exc.message],
+                    "model_content": _tool_error_model_content(exc),
+                }
+            )
         except ValidationError as exc:
-            messages = [
-                f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
-                for error in exc.errors()
-            ]
-            return ToolOutcome(llm_result={"ok": False, "errors": messages})
+            return ToolOutcome(
+                llm_result={
+                    "ok": False,
+                    "errors": ["工具参数校验失败，请调整参数后重试。"],
+                    "model_content": _tool_error_model_content(
+                        exc,
+                        guidance="这是字段校验详情，请按字段修正参数后重试。",
+                    ),
+                }
+            )
+        except Exception as exc:
+            logger.exception(
+                "Character forge tool crashed: tool=%s error_type=%s",
+                tool_name,
+                type(exc).__name__,
+            )
+            return ToolOutcome(
+                llm_result={
+                    "ok": False,
+                    "errors": ["工具执行失败，请调整参数或换一种做法后重试。"],
+                    "model_content": _tool_error_model_content(exc),
+                }
+            )
 
     async def _load_skill(
         self, arguments: dict[str, Any], context: ToolContext
@@ -891,11 +1032,15 @@ class ForgeToolExecutor:
         except APIError as exc:
             if exc.status_code >= 500:
                 logger.warning("voice clone upstream failed: %s", exc.message)
-                return _field_error(
-                    [
-                        f"音色服务暂时不可用（{exc.code}）。不要再重试这一次调用，"
-                        "直接用一句人话告诉用户稍后再试，或者先用系统音色。"
-                    ]
+                return ToolOutcome(
+                    llm_result=_upstream_failure_result(
+                        "音色服务暂时不可用，请稍后再试。",
+                        exc,
+                        fallback=(
+                            "不要再重试这一次调用，直接用一句人话告诉用户稍后再试，"
+                            "或者先用系统音色。"
+                        ),
+                    )
                 )
             raise
         profile = accepted.voice
@@ -928,13 +1073,6 @@ class ForgeToolExecutor:
         missing = _require_skill(context, "avatar-creation")
         if missing is not None:
             return missing
-        if len(context.avatar_calls) >= settings.CHARACTER_FORGE_MAX_AVATAR_CALLS:
-            return ToolOutcome(
-                llm_result={
-                    "ok": False,
-                    "errors": ["本次对话的形象生成次数已用完。可以不带头像继续创建角色。"],
-                }
-            )
         prompt = str(arguments.get("prompt") or "").strip()
         if not (20 <= len(prompt) <= 1500):
             return _field_error(["prompt 需要 20-1500 个字符"])
@@ -954,12 +1092,22 @@ class ForgeToolExecutor:
             if context.reference_images[key] not in reference_images:
                 reference_images.append(context.reference_images[key])
 
-        context.avatar_calls.append(1)
-        image_key, _avatar_urls = await self._avatars.generate(
-            user_id=context.user.id,
-            prompt=prompt,
-            reference_images=reference_images or None,
-        )
+        try:
+            image_key, _avatar_urls = await self._avatars.generate(
+                user_id=context.user.id,
+                prompt=prompt,
+                reference_images=reference_images or None,
+            )
+        except APIError as exc:
+            logger.warning("generate_avatar failed: %s", exc)
+            return ToolOutcome(
+                llm_result=_upstream_failure_result(
+                    exc.message,
+                    exc,
+                    guidance=_AVATAR_FAILURE_GUIDANCE,
+                    fallback=_AVATAR_FAILURE_FALLBACK,
+                )
+            )
         return ToolOutcome(
             llm_result={
                 "ok": True,
@@ -1160,26 +1308,30 @@ class ForgeToolExecutor:
     async def _search_web(
         self, arguments: dict[str, Any], context: ToolContext
     ) -> ToolOutcome:
-        if len(context.search_calls) >= settings.CHARACTER_FORGE_MAX_SEARCH_CALLS:
-            return ToolOutcome(
-                llm_result={
-                    "ok": False,
-                    "errors": ["本次对话的搜索次数已用完，请基于已有信息继续。"],
-                }
-            )
         query = str(arguments.get("query") or "").strip()
         if not query:
             return _field_error(["query 不能为空"])
-        context.search_calls.append(1)
         num_results = int(arguments.get("num_results") or 5)
         try:
             results = await self._search.search(query=query, num_results=num_results)
+        except APIError as exc:
+            logger.warning("DeepSeek search failed: %s", exc)
+            return ToolOutcome(
+                llm_result=_upstream_failure_result(
+                    "搜索服务暂时不可用，请基于已有信息继续。",
+                    exc,
+                    fallback=_SEARCH_FAILURE_FALLBACK,
+                )
+            )
         except Exception as exc:
             logger.warning("DeepSeek search failed: %s", exc)
             return ToolOutcome(
                 llm_result={
                     "ok": False,
                     "errors": ["搜索服务暂时不可用，请基于已有信息继续。"],
+                    "model_content": _tool_error_model_content(
+                        exc, guidance=_SEARCH_FAILURE_FALLBACK
+                    ),
                 }
             )
         return ToolOutcome(
@@ -1190,23 +1342,27 @@ class ForgeToolExecutor:
     async def _read_webpage(
         self, arguments: dict[str, Any], context: ToolContext
     ) -> ToolOutcome:
-        if len(context.search_calls) >= settings.CHARACTER_FORGE_MAX_SEARCH_CALLS:
-            return ToolOutcome(
-                llm_result={
-                    "ok": False,
-                    "errors": ["本次对话的搜索次数已用完，请基于已有信息继续。"],
-                }
-            )
         url = str(arguments.get("url") or "").strip()
-        context.search_calls.append(1)
         try:
             page = await self._search.fetch_page(url=url)
+        except APIError as exc:
+            logger.warning("DeepSeek fetch failed: %s", exc)
+            return ToolOutcome(
+                llm_result=_upstream_failure_result(
+                    "网页抓取失败，请换一个来源或基于已有信息继续。",
+                    exc,
+                    fallback=_FETCH_FAILURE_FALLBACK,
+                )
+            )
         except Exception as exc:
             logger.warning("DeepSeek fetch failed: %s", exc)
             return ToolOutcome(
                 llm_result={
                     "ok": False,
                     "errors": ["网页抓取失败，请换一个来源或基于已有信息继续。"],
+                    "model_content": _tool_error_model_content(
+                        exc, guidance=_FETCH_FAILURE_FALLBACK
+                    ),
                 }
             )
         return ToolOutcome(llm_result={"ok": True, **page})

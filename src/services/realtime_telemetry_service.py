@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any, TypeVar
@@ -41,6 +42,8 @@ from src.schemas.realtime_telemetry import (
     sanitize_event_payload,
     validate_rtc_session_id,
 )
+
+logger = logging.getLogger(__name__)
 
 _ResponseModel = TypeVar("_ResponseModel", bound=BaseModel)
 
@@ -112,7 +115,12 @@ class RealtimeTelemetryService:
                     )
                 )
         except (TypeError, ValueError) as exc:
-            raise APIError(422, "validation_failed", f"validation failed: {exc}") from exc
+            logger.warning("Realtime telemetry event validation failed: %s", exc)
+            raise APIError(
+                422,
+                "validation_failed",
+                "validation failed: request parameters are invalid",
+            ) from exc
         async with self._uow.transactional():
             accepted = await self._repo.insert_events(rows)
             for values in self._derive_client_turn_metrics(
