@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-
 from datetime import datetime
 
 from sqlalchemy import and_, delete, desc, func, or_, select, text, update
@@ -67,6 +66,7 @@ class ChatRepository:
                 Chat.user_id == user_id,
                 Chat.character_id == character_id,
                 Chat.state == ChatState.ACTIVE.value,
+                Character.deleted_at.is_(None),
             )
         )
 
@@ -154,7 +154,11 @@ class ChatRepository:
     async def list_active_user_character_pairs(self) -> list[tuple[str, str]]:
         stmt = (
             select(Chat.user_id, Chat.character_id)
-            .where(Chat.state == ChatState.ACTIVE.value)
+            .join(Character, Character.id == Chat.character_id)
+            .where(
+                Chat.state == ChatState.ACTIVE.value,
+                Character.deleted_at.is_(None),
+            )
             .distinct()
         )
         rows = list((await self._db.execute(stmt)).all())
@@ -249,6 +253,7 @@ class ChatRepository:
             select(Character, User.username, subq.c.sort_at, has_unread_proactive)
             .join(subq, Character.id == subq.c.character_id)
             .outerjoin(User, Character.creator_id == User.id)
+            .where(Character.deleted_at.is_(None))
             .order_by(desc(subq.c.sort_at), desc(Character.id))
             .offset(skip)
             .limit(limit)

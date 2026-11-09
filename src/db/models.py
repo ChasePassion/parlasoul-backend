@@ -780,6 +780,10 @@ class Character(Base, table=True):
         default=None,
         sa_column=Column(TIMESTAMP(timezone=True), nullable=True),
     )
+    deleted_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True), nullable=True),
+    )
     visibility: str = Field(
         default=VisibilityType.PRIVATE.value,
         sa_column=Column(visibility_enum, nullable=False),

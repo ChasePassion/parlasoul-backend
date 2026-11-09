@@ -336,28 +336,31 @@ async def test_unpublish_character_not_found() -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_character_removes_for_creator() -> None:
+async def test_delete_character_soft_deletes_for_creator() -> None:
     owner = _build_user()
-    character = _build_character(creator_id=owner.id)
+    character = _build_character(
+        creator_id=owner.id,
+        visibility=VisibilityType.PUBLIC.value,
+    )
     repo = CharacterRepository.__new__(CharacterRepository)
     repo.get_by_id = AsyncMock(return_value=character)
-    repo.delete = AsyncMock()
+    repo.soft_delete = AsyncMock()
     voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
     gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
     service = CharacterService(repo, voice_repo, gateway_repo)
 
     await service.delete_character(character.id, current_user=owner)
 
-    repo.delete.assert_awaited_once_with(character)
+    repo.soft_delete.assert_awaited_once_with(character)
 
 
 @pytest.mark.asyncio
-async def test_delete_character_purges_memories_across_users() -> None:
+async def test_delete_character_keeps_memories() -> None:
     owner = _build_user()
     character = _build_character(creator_id=owner.id)
     repo = CharacterRepository.__new__(CharacterRepository)
     repo.get_by_id = AsyncMock(return_value=character)
-    repo.delete = AsyncMock()
+    repo.soft_delete = AsyncMock()
     memory_repo = SimpleNamespace(purge_character=AsyncMock(return_value=3))
     voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
     gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
@@ -370,33 +373,8 @@ async def test_delete_character_purges_memories_across_users() -> None:
 
     await service.delete_character(character.id, current_user=owner)
 
-    memory_repo.purge_character.assert_awaited_once_with(character_id=str(character.id))
-    repo.delete.assert_awaited_once_with(character)
-
-
-@pytest.mark.asyncio
-async def test_delete_character_survives_memory_purge_failure() -> None:
-    owner = _build_user()
-    character = _build_character(creator_id=owner.id)
-    repo = CharacterRepository.__new__(CharacterRepository)
-    repo.get_by_id = AsyncMock(return_value=character)
-    repo.delete = AsyncMock()
-    memory_repo = SimpleNamespace(
-        purge_character=AsyncMock(side_effect=RuntimeError("milvus down")),
-    )
-    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
-    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    service = CharacterService(
-        repo,
-        voice_repo,
-        gateway_repo,
-        memory_repo=memory_repo,
-    )
-
-    await service.delete_character(character.id, current_user=owner)
-
-    repo.delete.assert_awaited_once_with(character)
-    memory_repo.purge_character.assert_awaited_once()
+    memory_repo.purge_character.assert_not_awaited()
+    repo.soft_delete.assert_awaited_once_with(character)
 
 
 @pytest.mark.asyncio
@@ -405,7 +383,7 @@ async def test_delete_character_rejects_non_creator() -> None:
     character = _build_character(creator_id=owner.id)
     repo = CharacterRepository.__new__(CharacterRepository)
     repo.get_by_id = AsyncMock(return_value=character)
-    repo.delete = AsyncMock()
+    repo.soft_delete = AsyncMock()
     voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
     gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
     service = CharacterService(repo, voice_repo, gateway_repo)
@@ -415,14 +393,14 @@ async def test_delete_character_rejects_non_creator() -> None:
 
     assert exc.value.status_code == 403
     assert exc.value.code == "character_modify_forbidden"
-    repo.delete.assert_not_awaited()
+    repo.soft_delete.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_delete_character_raises_404_for_missing_character() -> None:
     repo = CharacterRepository.__new__(CharacterRepository)
     repo.get_by_id = AsyncMock(return_value=None)
-    repo.delete = AsyncMock()
+    repo.soft_delete = AsyncMock()
     voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
     gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
     service = CharacterService(repo, voice_repo, gateway_repo)
@@ -432,7 +410,43 @@ async def test_delete_character_raises_404_for_missing_character() -> None:
 
     assert exc.value.status_code == 404
     assert exc.value.code == "character_not_found"
-    repo.delete.assert_not_awaited()
+    repo.soft_delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delete_character_raises_404_when_already_deleted() -> None:
+    owner = _build_user()
+    character = _build_character(creator_id=owner.id)
+    character.deleted_at = datetime.now(UTC)
+    repo = CharacterRepository.__new__(CharacterRepository)
+    repo.get_by_id = AsyncMock(return_value=character)
+    repo.soft_delete = AsyncMock()
+    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
+    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
+    service = CharacterService(repo, voice_repo, gateway_repo)
+
+    with pytest.raises(APIError) as exc:
+        await service.delete_character(character.id, current_user=owner)
+
+    assert exc.value.status_code == 404
+    repo.soft_delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_repository_soft_delete_hides_and_unpublishes() -> None:
+    class _CommitSession:
+        async def commit(self) -> None:
+            return None
+
+    repo = CharacterRepository.__new__(CharacterRepository)
+    repo._db = _CommitSession()
+    character = _build_character(visibility=VisibilityType.PUBLIC.value)
+
+    await repo.soft_delete(character)
+
+    assert character.deleted_at is not None
+    assert character.visibility == VisibilityType.PRIVATE.value
+    assert character.unpublished_at is not None
 
 
 @pytest.mark.asyncio

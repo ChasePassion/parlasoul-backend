@@ -85,7 +85,10 @@ class UserRepository:
         limit: int,
         public_only: bool,
     ) -> list[Character]:
-        stmt = select(Character).where(Character.creator_id == creator_id)
+        stmt = select(Character).where(
+            Character.creator_id == creator_id,
+            Character.deleted_at.is_(None),
+        )
         if public_only:
             stmt = stmt.where(
                 Character.visibility == VisibilityType.PUBLIC.value,

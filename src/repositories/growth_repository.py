@@ -122,6 +122,7 @@ class GrowthRepository:
                 GrowthCharacterDailyStats.stat_date >= start_date,
                 GrowthCharacterDailyStats.stat_date <= end_date,
                 GrowthCharacterDailyStats.total_message_count > 0,
+                Character.deleted_at.is_(None),
             )
             .order_by(
                 asc(GrowthCharacterDailyStats.stat_date),
@@ -211,7 +212,10 @@ class GrowthRepository:
         stmt = (
             select(GrowthCharacterStats, Character)
             .join(Character, Character.id == GrowthCharacterStats.character_id)
-            .where(GrowthCharacterStats.user_id == user_id)
+            .where(
+                GrowthCharacterStats.user_id == user_id,
+                Character.deleted_at.is_(None),
+            )
         )
         if only_with_exchanges:
             stmt = stmt.where(GrowthCharacterStats.total_exchange_count > 0)

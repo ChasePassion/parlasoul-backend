@@ -155,6 +155,9 @@ class CharacterForgeRepository:
     ) -> dict[uuid.UUID, Character]:
         if not character_ids:
             return {}
-        stmt = select(Character).where(Character.id.in_(character_ids))
+        stmt = select(Character).where(
+            Character.id.in_(character_ids),
+            Character.deleted_at.is_(None),
+        )
         rows = (await self._db.execute(stmt)).scalars().all()
         return {row.id: row for row in rows}

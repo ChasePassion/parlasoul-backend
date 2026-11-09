@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from src.core.exceptions import APIError
 from src.db.models import (
     Character,
     Chat,
@@ -127,6 +128,27 @@ async def test_create_chat_allows_creator_of_unpublished_character() -> None:
     chat_repo.add.assert_called_once()
     turn_repo.add.assert_called_once()
     candidate_repo.add.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_create_chat_rejects_soft_deleted_character() -> None:
+    current_user = _user()
+    character = _character(creator_id=current_user.id)
+    character.deleted_at = datetime.now(UTC)
+    chat_repo = SimpleNamespace(add=Mock())
+    character_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=character))
+    service = _service(chat_repo=chat_repo, character_repo=character_repo)
+
+    with pytest.raises(APIError) as exc:
+        await service.create_chat(
+            current_user=current_user,
+            character_id=character.id,
+            meta=None,
+        )
+
+    assert exc.value.status_code == 404
+    assert exc.value.code == "character_not_found"
+    chat_repo.add.assert_not_called()
 
 
 @pytest.mark.asyncio
