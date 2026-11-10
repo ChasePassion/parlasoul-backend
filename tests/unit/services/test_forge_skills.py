@@ -1,4 +1,4 @@
-"""Skill discovery, rendering and the load_skill guard."""
+"""Skill discovery, rendering and forge tool behavior."""
 
 from __future__ import annotations
 
@@ -155,7 +155,6 @@ async def test_create_character_persists_and_returns_created_card():
     context = ToolContext(
         user=SimpleNamespace(id=uuid.uuid4()),
         session=SimpleNamespace(id=uuid.uuid4(), active_character_id=None),
-        loaded_skills={"voice-creation", "prompt-creation"},
     )
     voice_id = dashscope_full_voice_catalog()[0].provider_voice_id
     preview = await executor.execute(
@@ -242,7 +241,6 @@ def test_character_tools_never_ask_the_model_for_an_opaque_preview_token():
 async def test_preview_handle_is_a_short_serial_and_the_audio_url_stays_short():
     executor = _executor()
     context = _context()
-    context.loaded_skills.add("voice-creation")
     voice_id = dashscope_full_voice_catalog()[0].provider_voice_id
 
     preview = await _run_preview(executor, context, voice_id)
@@ -295,7 +293,6 @@ async def test_update_character_keeps_the_existing_shaping_when_only_the_voice_c
         session=SimpleNamespace(
             id=uuid.uuid4(), active_character_id=str(uuid.uuid4())
         ),
-        loaded_skills={"prompt-creation"},
     )
     other_voice = dashscope_full_voice_catalog()[1].provider_voice_id
 
@@ -328,7 +325,6 @@ async def test_create_character_rejects_a_voice_outside_the_catalog():
     context = ToolContext(
         user=SimpleNamespace(id=uuid.uuid4()),
         session=SimpleNamespace(id=uuid.uuid4(), active_character_id=None),
-        loaded_skills={"prompt-creation"},
     )
 
     result = await executor.execute(
@@ -368,7 +364,6 @@ async def test_generate_avatar_passes_resolved_reference_images():
     context = ToolContext(
         user=SimpleNamespace(id=uuid.uuid4()),
         session=SimpleNamespace(id=uuid.uuid4(), active_character_id=None),
-        loaded_skills={"avatar-creation"},
         reference_images={
             "images/avatars/chat/u/one": "data:image/jpeg;base64,AAAA",
             "images/avatars/chat/u/two": "https://example.test/two.jpg",
@@ -402,49 +397,34 @@ async def test_unknown_skill_tool_call_fails():
     assert result.llm_result["ok"] is False
 
 
-async def test_tools_require_their_skill_first():
-    executor = _executor()
-    context = _context()
+async def test_create_character_allows_another_character_in_the_same_session():
+    characters = _FakeCharacterService()
+    executor = ForgeToolExecutor(
+        character_service=characters,
+        chat_service=_FakeChatService(),
+        search_repository=None,
+        preview_store=_FakePreviewStore(),
+        avatar_service=None,
+        audio_service=None,
+        voice_profile_service=None,
+    )
+    context = ToolContext(
+        user=SimpleNamespace(id=uuid.uuid4()),
+        session=SimpleNamespace(
+            id=uuid.uuid4(), active_character_id=str(uuid.uuid4())
+        ),
+    )
 
-    voice_error = await executor.execute(
-        "preview_voice",
+    created = await executor.execute(
+        "create_character",
         {
-            "base_voice_id": "Maia",
-            "speech_rate": 1.0,
-            "volume": 50,
-            "pitch_rate": 1.0,
-            "sample_text": "这是一句用来测试技能门禁的台词。",
+            "name": "测试角色",
+            "description": "一个用于测试创建流的角色",
+            "system_prompt": "x" * 300,
+            "voice_base_id": dashscope_full_voice_catalog()[0].provider_voice_id,
         },
         context,
     )
-    assert voice_error.llm_result["ok"] is False
-    assert "load_skill" in voice_error.llm_result["errors"][0]
 
-    create_error = await executor.execute(
-        "create_character", {}, context
-    )
-    assert create_error.llm_result["ok"] is False
-    assert "load_skill" in create_error.llm_result["errors"][0]
-
-    clone_error = await executor.execute(
-        "clone_voice",
-        {"audio_key": "audio/whatever.wav", "display_name": "My Voice"},
-        context,
-    )
-    assert clone_error.llm_result["ok"] is False
-    assert "voice-clone" in clone_error.llm_result["errors"][0]
-
-    await executor.execute("load_skill", {"name": "voice-creation"}, context)
-    retry = await executor.execute(
-        "preview_voice",
-        {
-            "base_voice_id": "not-a-voice",
-            "speech_rate": 1.0,
-            "volume": 50,
-            "pitch_rate": 1.0,
-            "sample_text": "这是一句用来测试技能门禁的台词。",
-        },
-        context,
-    )
-    assert retry.llm_result["ok"] is False
-    assert "load_skill" not in retry.llm_result["errors"][0]
+    assert created.llm_result["ok"] is True
+    assert characters.created is not None

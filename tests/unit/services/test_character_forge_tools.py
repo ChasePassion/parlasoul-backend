@@ -53,14 +53,11 @@ class _RefusingSearchRepository:
         )
 
 
-def _context(*, skills: tuple[str, ...] = ()) -> ToolContext:
-    context = ToolContext(
+def _context() -> ToolContext:
+    return ToolContext(
         user=SimpleNamespace(id=uuid.uuid4()),
         session=SimpleNamespace(id=uuid.uuid4(), active_character_id=None),
     )
-    for skill in skills:
-        context.loaded_skills.add(skill)
-    return context
 
 
 def _executor(*, avatar_service: Any = None, search_repository: Any = None):
@@ -87,7 +84,7 @@ async def test_generate_avatar_keeps_the_user_facing_message_unchanged():
             upstream_message="Green net check rejected image (input)",
         )
     )
-    context = _context(skills=("avatar-creation",))
+    context = _context()
 
     outcome = await executor.execute(
         "generate_avatar", {"prompt": _AVATAR_PROMPT}, context
@@ -106,7 +103,7 @@ async def test_generate_avatar_gives_the_model_the_upstream_reason():
             upstream_message="Green net check rejected image (input)",
         )
     )
-    context = _context(skills=("avatar-creation",))
+    context = _context()
 
     outcome = await executor.execute(
         "generate_avatar", {"prompt": _AVATAR_PROMPT}, context
@@ -129,7 +126,7 @@ async def test_generate_avatar_without_upstream_detail_keeps_the_user_message():
             )
 
     executor = _executor(avatar_service=_PlainFailure())
-    context = _context(skills=("avatar-creation",))
+    context = _context()
 
     outcome = await executor.execute(
         "generate_avatar", {"prompt": _AVATAR_PROMPT}, context
@@ -190,7 +187,7 @@ async def test_generate_avatar_can_be_called_repeatedly():
 
     avatar = _CountingAvatarService()
     executor = _executor(avatar_service=avatar)
-    context = _context(skills=("avatar-creation",))
+    context = _context()
 
     for _ in range(5):
         outcome = await executor.execute(
