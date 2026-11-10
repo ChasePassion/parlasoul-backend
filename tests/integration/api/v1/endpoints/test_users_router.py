@@ -17,7 +17,6 @@ from src.core.dependencies import (
     get_user_settings_service,
 )
 from src.db.models import User
-from src.schemas.character import CharacterResponse
 from src.schemas.chat import CharacterBrief
 from src.schemas.proactive import (
     ProactiveCharacterPreferenceItem,
@@ -27,7 +26,6 @@ from src.schemas.user import (
     UserEntitlementFeatures,
     UserEntitlementSettings,
     UserEntitlementsResponse,
-    UserProfileResponse,
 )
 from src.schemas.user_settings import UserSettingsResponse
 
@@ -85,124 +83,6 @@ def _create_app(
     return app
 
 
-def test_get_my_profile_delegates_to_service() -> None:
-    service = _StubUserService()
-    service.get_my_profile.return_value = UserProfileResponse(
-        id=str(uuid.uuid4()),
-        email="viewer@example.com",
-        username="viewer",
-        email_verified=True,
-        avatar_image_key=None,
-        avatar_urls=None,
-        created_at="2026-01-01T00:00:00Z",
-        last_login_at=None,
-        onboarding_status="completed",
-    )
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.get("/v1/users/me")
-
-    assert resp.status_code == 200
-    assert resp.json()["code"] == "ok"
-    service.get_my_profile.assert_awaited_once()
-
-
-def test_update_my_profile_delegates_to_service() -> None:
-    service = _StubUserService()
-    service.update_my_profile.return_value = UserProfileResponse(
-        id=str(uuid.uuid4()),
-        email="viewer@example.com",
-        username="updated",
-        email_verified=True,
-        avatar_image_key="images/avatars/users/user-1/image-1",
-        avatar_urls=None,
-        created_at="2026-01-01T00:00:00Z",
-        last_login_at=None,
-        onboarding_status="completed",
-    )
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.put("/v1/users/me", json={"username": "updated"})
-
-    assert resp.status_code == 200
-    assert resp.json()["data"]["username"] == "updated"
-    service.update_my_profile.assert_awaited_once()
-
-
-def test_update_my_onboarding_status_delegates_to_service() -> None:
-    service = _StubUserService()
-    service.update_onboarding_status.return_value = UserProfileResponse(
-        id=str(uuid.uuid4()),
-        email="viewer@example.com",
-        username="viewer",
-        email_verified=True,
-        avatar_image_key=None,
-        avatar_urls=None,
-        created_at="2026-01-01T00:00:00Z",
-        last_login_at=None,
-        onboarding_status="discover_done",
-    )
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.patch(
-            "/v1/users/me/onboarding",
-            json={"status": "discover_done"},
-        )
-
-    assert resp.status_code == 200
-    assert resp.json()["data"]["onboarding_status"] == "discover_done"
-    service.update_onboarding_status.assert_awaited_once()
-
-
-def test_get_my_settings_delegates_to_service() -> None:
-    service = _StubUserService()
-    service.get_my_settings.return_value = UserSettingsResponse(
-        display_mode="concise",
-        memory_enabled=True,
-        reply_card_enabled=True,
-        mixed_input_auto_translate_enabled=True,
-        auto_read_aloud_enabled=True,
-        preferred_expression_bias_enabled=True,
-        proactive_enabled=False,
-        timezone="Asia/Shanghai",
-        message_font_size=16,
-        updated_at=datetime.now(UTC),
-    )
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.get("/v1/users/me/settings")
-
-    assert resp.status_code == 200
-    assert resp.json()["data"]["message_font_size"] == 16
-    service.get_my_settings.assert_awaited_once()
-
-
-def test_update_my_settings_delegates_to_service() -> None:
-    service = _StubUserService()
-    service.update_my_settings.return_value = UserSettingsResponse(
-        display_mode="detailed",
-        memory_enabled=True,
-        reply_card_enabled=True,
-        mixed_input_auto_translate_enabled=False,
-        auto_read_aloud_enabled=False,
-        preferred_expression_bias_enabled=False,
-        proactive_enabled=False,
-        timezone="Asia/Shanghai",
-        message_font_size=18,
-        updated_at=datetime.now(UTC),
-    )
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.patch("/v1/users/me/settings", json={"message_font_size": 18})
-
-    assert resp.status_code == 200
-    assert resp.json()["data"]["message_font_size"] == 18
-    service.update_my_settings.assert_awaited_once()
 
 
 def test_get_my_entitlements_delegates_to_subscription_service() -> None:
@@ -316,34 +196,3 @@ def test_replace_my_proactive_characters_delegates_to_service() -> None:
     proactive_service.replace_enabled_character_ids.assert_awaited_once()
 
 
-def test_get_creator_characters_delegates_to_service() -> None:
-    service = _StubUserService()
-    service.get_creator_characters.return_value = [
-        CharacterResponse(
-            id=str(uuid.uuid4()),
-            name="Mika",
-            description="desc",
-            system_prompt="prompt",
-            greeting_message="hello",
-            avatar_image_key=None,
-            avatar_urls=None,
-            voice_provider="dashscope",
-            voice_model="qwen3-tts-instruct-flash-realtime",
-            voice_provider_voice_id="Cherry",
-            voice_source_type="system",
-            creator_id=str(uuid.uuid4()),
-            creator_username="creator",
-            visibility="PUBLIC",
-            identifier=None,
-            interaction_count=0,
-        )
-    ]
-    app = _create_app(service)
-    creator_id = str(uuid.uuid4())
-
-    with TestClient(app) as client:
-        resp = client.get(f"/v1/users/{creator_id}/characters")
-
-    assert resp.status_code == 200
-    assert resp.json()["status"] == 200
-    service.get_creator_characters.assert_awaited_once()

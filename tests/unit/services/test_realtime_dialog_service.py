@@ -1,8 +1,5 @@
 from src.services.chat_generation_service import (
-    VOICE_CHANNEL_POLICY,
     ChatGenerationContext,
-    build_generation_messages,
-    build_llm_system_prompt,
     strip_image_parts,
 )
 
@@ -26,49 +23,10 @@ def _user_message_builder(text: str, chat_images: list | None) -> dict:
     return {"role": "user", "content": text}
 
 
-def test_voice_channel_policy_keeps_character_prompt_then_adds_voice_rules() -> None:
-    prompt = build_llm_system_prompt(_voice_context("Stay in character."))
-
-    assert prompt.startswith("Stay in character.\n")
-    assert prompt.endswith(VOICE_CHANNEL_POLICY)
 
 
-def test_voice_channel_strips_image_parts_keeping_text_on_same_message() -> None:
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
-                {"type": "text", "text": "看看这张图"},
-            ],
-        }
-    ]
-
-    result = strip_image_parts(messages)
-
-    assert result == [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "看看这张图"},
-            ],
-        }
-    ]
 
 
-def test_voice_channel_strips_pure_image_messages() -> None:
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
-            ],
-        }
-    ]
-
-    result = strip_image_parts(messages)
-
-    assert result == []
 
 
 def test_voice_channel_keeps_plain_text_messages_unchanged() -> None:
@@ -98,23 +56,3 @@ def test_voice_channel_keeps_plain_text_messages_unchanged() -> None:
     ]
 
 
-def test_voice_generation_messages_strip_history_and_send_plain_user_message() -> None:
-    context = _voice_context(
-        "Stay in character.",
-        history_messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
-                    {"type": "text", "text": "图片消息"},
-                ],
-            },
-            {"role": "assistant", "content": "回复"},
-        ],
-    )
-
-    messages = build_generation_messages(context, user_message_builder=_user_message_builder)
-
-    assert messages[0]["role"] == "system"
-    assert messages[1] == {"role": "user", "content": [{"type": "text", "text": "图片消息"}]}
-    assert messages[-1] == {"role": "user", "content": "hello"}

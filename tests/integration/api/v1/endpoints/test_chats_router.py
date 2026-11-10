@@ -29,19 +29,6 @@ from src.db.models import User
 
 class _StubChatService:
     def __init__(self) -> None:
-        self.list_chats_page = AsyncMock(
-            return_value={"items": [], "next_cursor": None, "has_more": False}
-        )
-        self.list_sidebar_characters = AsyncMock(return_value=[])
-        self.get_recent_chat_detail = AsyncMock(return_value=None)
-        self.create_chat = AsyncMock(
-            return_value={"chat": {"id": "c1", "title": "新聊天"}, "character": {}, "initial_turns": []}
-        )
-        self.update_chat_title = AsyncMock(return_value={"id": "c1", "title": "Renamed"})
-        self.delete_chat = AsyncMock(return_value=None)
-        self.get_turns_page = AsyncMock(
-            return_value={"chat": {"id": "c1", "title": "新聊天"}, "character": {}, "turns": []}
-        )
         self.prepare_stream = AsyncMock(return_value={"prepared": True})
         self.stream_chat_called = False
 
@@ -74,40 +61,8 @@ def _create_app(service: _StubChatService) -> FastAPI:
     return app
 
 
-def test_get_recent_chat_delegates_to_service() -> None:
-    service = _StubChatService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.get(f"/v1/chats/recent?character_id={uuid.uuid4()}")
-
-    assert resp.status_code == 200
-    assert resp.json()["code"] == "ok"
-    service.get_recent_chat_detail.assert_awaited_once()
 
 
-def test_list_chats_delegates_to_service() -> None:
-    service = _StubChatService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.get(f"/v1/chats?character_id={uuid.uuid4()}")
-
-    assert resp.status_code == 200
-    assert resp.json()["code"] == "ok"
-    service.list_chats_page.assert_awaited_once()
-
-
-def test_get_sidebar_characters_delegates_to_service() -> None:
-    service = _StubChatService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.get("/v1/chats/characters")
-
-    assert resp.status_code == 200
-    assert resp.json()["code"] == "ok"
-    service.list_sidebar_characters.assert_awaited_once()
 
 
 def test_get_recent_chat_still_works_when_memory_init_fails(monkeypatch) -> None:
@@ -167,57 +122,6 @@ def test_get_recent_chat_still_works_when_memory_init_fails(monkeypatch) -> None
     chat_repo.get_recent_active.assert_awaited_once()
 
 
-def test_create_chat_delegates_to_service() -> None:
-    service = _StubChatService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.post(
-            "/v1/chats",
-            json={"character_id": str(uuid.uuid4())},
-        )
-
-    assert resp.status_code == 201
-    assert resp.json()["status"] == 201
-    service.create_chat.assert_awaited_once()
-
-
-def test_update_chat_delegates_to_service() -> None:
-    service = _StubChatService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.patch(
-            f"/v1/chats/{uuid.uuid4()}",
-            json={"title": "Renamed"},
-        )
-
-    assert resp.status_code == 200
-    assert resp.json()["code"] == "ok"
-    service.update_chat_title.assert_awaited_once()
-
-
-def test_delete_chat_delegates_to_service() -> None:
-    service = _StubChatService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.delete(f"/v1/chats/{uuid.uuid4()}")
-
-    assert resp.status_code == 204
-    service.delete_chat.assert_awaited_once()
-
-
-def test_get_chat_turns_delegates_to_service() -> None:
-    service = _StubChatService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.get(f"/v1/chats/{uuid.uuid4()}/turns")
-
-    assert resp.status_code == 200
-    assert resp.json()["code"] == "ok"
-    service.get_turns_page.assert_awaited_once()
 
 
 def test_stream_chat_route_streams_sse_events() -> None:

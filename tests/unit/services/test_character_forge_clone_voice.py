@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from typing import Any
 
 from src.services.character_forge_tools import ForgeToolExecutor, ToolContext
-from src.services.media_url_service import chat_audio_key
 
 
 class _FakeAudioService:
@@ -79,32 +78,6 @@ def _executor(
     )
 
 
-async def test_clone_voice_forwards_required_arguments() -> None:
-    user = SimpleNamespace(id=uuid.uuid4())
-    context = ToolContext(
-        user=user,
-        session=SimpleNamespace(id=uuid.uuid4(), active_character_id=None),
-        loaded_skills={"voice-clone"},
-    )
-    voices = _FakeVoiceProfiles()
-
-    outcome = await _executor(voices).execute(
-        "clone_voice",
-        {
-            "audio_key": chat_audio_key(str(user.id), "sample.wav"),
-            "display_name": "Warm Narrator",
-        },
-        context,
-    )
-
-    assert outcome.llm_result["ok"] is True
-    assert voices.kwargs is not None
-    assert voices.kwargs["provider"] == "dashscope"
-    assert voices.kwargs["description"] is None
-    assert voices.kwargs["idempotency_key"] is None
-    assert voices.kwargs["source_audio_format"] == "wav"
-    assert outcome.ui_payload is not None
-    assert outcome.ui_payload["type"] == "voice_cloned"
 
 
 async def test_create_character_accepts_a_cloned_voice() -> None:

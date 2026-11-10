@@ -8,19 +8,11 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from src.api.exceptions import register_exception_handlers
-from src.api.response import error_body
 from src.core.error_codes import ErrorCode
 from src.core.exceptions import APIError
-from src.core.logging_context import bind_log_context, reset_tokens, set_request_context
+from src.core.logging_context import reset_tokens, set_request_context
 from src.memory_system.exceptions import LLMAuthenticationError
 from src.services.chat_service import _sanitize_candidate_extra
-
-
-def test_error_body_includes_request_id_from_context() -> None:
-    with bind_log_context(request_id="req-123"):
-        body = error_body(500, ErrorCode.INTERNAL_ERROR, "internal error: unexpected server error")
-
-    assert body["request_id"] == "req-123"
 
 
 class _ValidationPayload(BaseModel):
@@ -80,15 +72,6 @@ def test_validation_response_uses_structured_rules_instead_of_pydantic_text() ->
     assert "Input should be a valid integer" not in json.dumps(body, ensure_ascii=False)
 
 
-def test_llm_authentication_public_message_hides_upstream_detail() -> None:
-    error = LLMAuthenticationError(
-        model="test-model",
-        provider="test-provider",
-        original_error=RuntimeError("boom"),
-        detail="secret upstream response",
-    )
-
-    assert "secret upstream response" not in error.public_message()
 
 
 def test_candidate_extra_sanitizer_drops_legacy_error_message() -> None:

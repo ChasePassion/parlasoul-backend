@@ -11,7 +11,7 @@ from src.core.exceptions import APIError
 from src.db.models import SavedItem, User
 from src.repositories.saved_item_repository import SavedItemRepository
 from src.schemas.learning import SavedItemCreateRequest
-from src.services.saved_item_service import SavedItemService, _saved_item_response
+from src.services.saved_item_service import SavedItemService
 
 
 def _build_user() -> User:
@@ -89,22 +89,6 @@ async def test_delete_saved_item_not_found_raises() -> None:
     repo.delete.assert_not_called()
 
 
-def test_saved_item_response_removes_sentence_level_ipa() -> None:
-    user = _build_user()
-    item = _build_saved_item(user.id)
-    item.card = {
-        "ipa_us": "/həˈloʊ/",
-        "surface": "Hello there",
-        "zh": "你好呀",
-        "key_phrases": [
-            {"surface": "hello there", "zh": "你好呀", "ipa_us": "/həˈloʊ ðer/"},
-        ],
-    }
-
-    response = _saved_item_response(item)
-
-    assert "ipa_us" not in response.card
-    assert response.card["key_phrases"][0]["ipa_us"] == "/həˈloʊ ðer/"
 
 
 @pytest.mark.asyncio

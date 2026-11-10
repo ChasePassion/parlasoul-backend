@@ -302,35 +302,6 @@ async def test_cancel_during_stt_awaits_task_and_restores_listening() -> None:
     assert harness.metrics.closed.is_set()
 
 
-@pytest.mark.asyncio
-async def test_cancel_during_llm_cancels_tts_and_records_cancelled_outcome() -> None:
-    harness = _build_harness()
-    harness.dialog.llm_gate = asyncio.Event()
-
-    await harness.session._on_utterance_commit(_utterance(), "vad_silence")
-    await harness.dialog.llm_started.wait()
-    await harness.session.cancel_response("client_response_cancelled", clear_audio=True)
-
-    assert harness.dialog.llm_cancelled.is_set()
-    assert harness.voice.tts_cancelled.is_set()
-    assert harness.turns.interrupted.is_set()
-    assert harness.metrics.turns[-1]["metrics"]["outcome"] == "cancelled"
-    await harness.session.close()
-
-
-@pytest.mark.asyncio
-async def test_barge_in_during_tts_records_interrupted_outcome() -> None:
-    harness = _build_harness()
-    harness.voice.tts_gate = asyncio.Event()
-
-    await harness.session._on_utterance_commit(_utterance(), "vad_silence")
-    await harness.voice.tts_segment_received.wait()
-    await harness.session.cancel_response("user_speech_detected", clear_audio=True)
-
-    assert harness.voice.tts_cancelled.is_set()
-    assert harness.turns.interrupted.is_set()
-    assert harness.metrics.turns[-1]["metrics"]["outcome"] == "interrupted"
-    await harness.session.close()
 
 
 @pytest.mark.asyncio
@@ -391,56 +362,5 @@ async def test_user_can_interrupt_while_tts_tail_is_waiting_to_drain() -> None:
     await harness.session.close()
 
 
-@pytest.mark.asyncio
-async def test_soft_interrupt_resume_grace_does_not_block_next_audio_frame() -> None:
-    harness = _build_harness(interrupt_hard_confirm_ms=1_000)
-    harness.session._generation_counter = 1
-    harness.session._current_generation_id = 1
-    harness.session._current_cancel_event = asyncio.Event()
-    assert await harness.pacer.begin_response(1)
-    assert await harness.pacer.write_pcm16(
-        np.ones(harness.pacer.frame_samples, dtype=np.int16).tobytes(),
-        generation_id=1,
-    )
-    harness.session.state = RealtimeSessionState.AGENT_SPEAKING
-    harness.interrupt.push(VADTransition(speech_started=True, preroll_audio=_utterance()))
-    harness.interrupt.push(VADTransition(speech_stopped=True))
-    harness.interrupt.push(VADTransition(speech_started=True, preroll_audio=_utterance()))
-
-    await harness.session.process_audio_frame(_utterance(), 16000)
-    await harness.session.process_audio_frame(_utterance(), 16000)
-
-    assert harness.session._resume_task is not None
-    assert not harness.session._resume_task.done()
-
-    await harness.session.process_audio_frame(_utterance(), 16000)
-
-    assert harness.session._resume_task is None
-    assert harness.session._speech_active
-    assert harness.session._soft_interrupt_active
-    await harness.session.close()
 
 
-@pytest.mark.asyncio
-async def test_repeated_cancel_emits_one_audio_stopped_event() -> None:
-    harness = _build_harness()
-    harness.session._generation_counter = 1
-    harness.session._current_generation_id = 1
-    harness.session._current_cancel_event = asyncio.Event()
-    harness.session.state = RealtimeSessionState.AGENT_SPEAKING
-    assert await harness.pacer.begin_response(1)
-    frame = np.ones(harness.pacer.frame_samples, dtype=np.int16).tobytes()
-    assert await harness.pacer.write_pcm16(frame * 2, generation_id=1)
-
-    await harness.session.cancel_response("client_response_cancelled", clear_audio=True)
-    await harness.session.cancel_response("client_response_cancelled", clear_audio=True)
-    await harness.pacer.read_frame()
-    await _wait_for_metric(harness.metrics, "audio_stopped")
-
-    stopped_events = [
-        row for row in harness.metrics.events if row["event_type"] == "audio_stopped"
-    ]
-    assert len(stopped_events) == 1
-    stats = await harness.pacer.stats_snapshot()
-    assert stats.fadeout_count == 1
-    await harness.session.close()

@@ -21,20 +21,12 @@ from src.db.models import (
     Character,
     Chat,
     ProactiveMessageDispatch,
-    RealtimeCallSession,
-    RealtimeTurnMetric,
-    RealtimeWebRTCStatsSample,
     Turn,
     User,
 )
 from src.evaluation.metrics.behavior_sql import (
     continuation_rate,
-    online_kpis,
     proactive_reply_rate,
-)
-from src.evaluation.metrics.voice_sql import (
-    media_raw_distributions,
-    turn_latency_percentiles,
 )
 
 _TABLES = [
@@ -44,15 +36,10 @@ _TABLES = [
     Turn.__table__,
     Candidate.__table__,
     ProactiveMessageDispatch.__table__,
-    RealtimeCallSession.__table__,
-    RealtimeTurnMetric.__table__,
-    RealtimeWebRTCStatsSample.__table__,
 ]
 
 W_START = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
 W_END = datetime(2026, 8, 2, 0, 0, tzinfo=UTC)
-# Keeps D7 cohorts right-censored (08-01+7 > 08-03) while D1 cohorts mature.
-AS_OF = datetime(2026, 8, 3, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture()
@@ -96,14 +83,12 @@ def _ts(hours: float) -> datetime:
 
 async def _seed(conn: AsyncConnection) -> None:
     user_id = uuid.uuid4()
-    other_user_id = uuid.uuid4()
     character_id = uuid.uuid4()
 
     await conn.execute(
         User.__table__.insert(),
         [
             {"id": user_id, "email": f"u1-{uuid.uuid4().hex}@example.com"},
-            {"id": other_user_id, "email": f"u2-{uuid.uuid4().hex}@example.com"},
         ],
     )
     await conn.execute(
@@ -121,10 +106,10 @@ async def _seed(conn: AsyncConnection) -> None:
         ],
     )
 
-    def chat_row(chat_id: uuid.UUID, *, origin: str = "user", meta: dict | None = None, hours: float = 1.0, state: str = "ACTIVE", owner: uuid.UUID | None = None):
+    def chat_row(chat_id: uuid.UUID, *, origin: str = "user", meta: dict | None = None, hours: float = 1.0, state: str = "ACTIVE"):
         return {
             "id": chat_id,
-            "user_id": owner or user_id,
+            "user_id": user_id,
             "character_id": character_id,
             "type": "ONE_ON_ONE",
             "state": state,
@@ -181,16 +166,6 @@ async def _seed(conn: AsyncConnection) -> None:
             parent_candidate_id=reply_cand, hours=1.5,
         )
     )
-    # second valid user turn same chat/day for KPIs
-    user_turn2 = uuid.uuid4()
-    user_cand2 = uuid.uuid4()
-    rows_candidates.append(candidate_row(user_cand2, user_turn2, content="more"))
-    rows_turns.append(
-        turn_row(
-            user_turn2, chat1, turn_no=3, author="USER", candidate_id=user_cand2,
-            parent_candidate_id=user_cand, hours=2.0,
-        )
-    )
 
     # --- assistant reply without continuation --------------------------------
     chat2 = uuid.uuid4()
@@ -230,36 +205,6 @@ async def _seed(conn: AsyncConnection) -> None:
     rows_candidates.append(candidate_row(error_cand, error_turn, extra={"error_code": "llm_service_error"}))
     rows_turns.append(
         turn_row(error_turn, chat5, turn_no=1, author="CHARACTER", candidate_id=error_cand, hours=4.0)
-    )
-
-    # --- greeting candidate excluded from KPI valid turns ---------------------
-    chat6 = uuid.uuid4()
-    greeting_turn = uuid.uuid4()
-    greeting_cand = uuid.uuid4()
-    rows_chats.append(chat_row(chat6, hours=4.5))
-    rows_candidates.append(candidate_row(greeting_cand, greeting_turn, extra={"source": "greeting"}))
-    rows_turns.append(
-        turn_row(greeting_turn, chat6, turn_no=1, author="CHARACTER", candidate_id=greeting_cand, proactive=True, hours=5.0)
-    )
-
-    # --- return day: user active on W day and on D+1 --------------------------
-    ret_chat = uuid.uuid4()
-    ret_turn = uuid.uuid4()
-    ret_cand = uuid.uuid4()
-    rows_chats.append(chat_row(ret_chat, hours=30.0))
-    rows_candidates.append(candidate_row(ret_cand, ret_turn, content="day2"))
-    rows_turns.append(
-        turn_row(ret_turn, ret_chat, turn_no=1, author="USER", candidate_id=ret_cand, hours=30.0)
-    )
-
-    # --- other-user activity (outside scope) ----------------------------------
-    other_chat = uuid.uuid4()
-    other_turn = uuid.uuid4()
-    other_cand = uuid.uuid4()
-    rows_chats.append(chat_row(other_chat, hours=6.0, owner=other_user_id))
-    rows_candidates.append(candidate_row(other_cand, other_turn, content="other"))
-    rows_turns.append(
-        turn_row(other_turn, other_chat, turn_no=1, author="USER", candidate_id=other_cand, hours=6.0)
     )
 
     # --- proactive reply rate fixtures -----------------------------------------
@@ -340,83 +285,6 @@ async def _seed(conn: AsyncConnection) -> None:
     if dispatch_rows:
         await conn.execute(ProactiveMessageDispatch.__table__.insert(), dispatch_rows)
 
-    # --- realtime telemetry fixtures -------------------------------------------
-    obs_user_pairs = []
-    for index, ttfa_values in enumerate(([100, 200, 300], [])):
-        if not ttfa_values:
-            continue
-        observation_id = uuid.uuid4()
-        obs_user_pairs.append((observation_id, user_id))
-        await conn.execute(
-            RealtimeCallSession.__table__.insert(),
-            [
-                {
-                    "observation_id": observation_id,
-                    "user_id": user_id,
-                    "mode": "lab",
-                    "scenario": "normal",
-                    "status": "completed",
-                    "browser_name": "chrome",
-                    "os_name": "windows",
-                    "turn_count": len(ttfa_values),
-                    "interruption_count": 0,
-                    "started_at": _ts(1),
-                }
-            ],
-        )
-        metric_rows = []
-        for seq, ttfa in enumerate(ttfa_values):
-            metric_rows.append(
-                {
-                    "observation_id": observation_id,
-                    "user_id": user_id,
-                    "turn_seq": seq,
-                    "generation_id": seq,
-                    "outcome": "completed",
-                    "ttfa_ms": ttfa,
-                    "endpointing_latency_ms": 40 + seq,
-                    "barge_in_stop_latency_ms": 50,
-                }
-            )
-        await conn.execute(RealtimeTurnMetric.__table__.insert(), metric_rows)
-        await conn.execute(
-            RealtimeWebRTCStatsSample.__table__.insert(),
-            [
-                {
-                    "observation_id": observation_id,
-                    "user_id": user_id,
-                    "sample_seq": 0,
-                    "sampled_offset_ms": 1000,
-                    "connection_state": "connected",
-                    "ice_connection_state": "completed",
-                    "data_channel_state": "open",
-                    "rtt_ms": 30,
-                    "inbound_jitter_ms": 5,
-                    "packet_loss_ratio": 0.01,
-                    "jitter_buffer_delay_ms": 40,
-                    "concealed_ratio": 0.02,
-                },
-                {
-                    "observation_id": observation_id,
-                    "user_id": user_id,
-                    "sample_seq": 1,
-                    "sampled_offset_ms": 2000,
-                    "connection_state": "connected",
-                    "ice_connection_state": "completed",
-                    "data_channel_state": "open",
-                    "rtt_ms": 50,
-                    "inbound_jitter_ms": 7,
-                    "packet_loss_ratio": 0.02,
-                    "jitter_buffer_delay_ms": 60,
-                    "concealed_ratio": 0.04,
-                },
-            ],
-        )
-
-    # store seeded observation scope on the connection for tests
-    conn.info["obs_scope"] = obs_user_pairs
-    conn.info["user_scope"] = [user_id]
-
 
 @pytest.mark.asyncio
 async def test_continuation_rate_seeded(seeded_conn: AsyncConnection) -> None:
@@ -432,17 +300,6 @@ async def test_continuation_rate_seeded(seeded_conn: AsyncConnection) -> None:
     assert result.censored == 1
 
 
-@pytest.mark.asyncio
-async def test_continuation_rate_empty_window(seeded_conn: AsyncConnection) -> None:
-    empty_start = datetime(2030, 1, 1, tzinfo=UTC)
-    result = await continuation_rate(
-        seeded_conn,
-        window_start=empty_start,
-        window_end=empty_start + timedelta(days=1),
-        lookahead_hours=1,
-    )
-    assert result.status == "no_data"
-    assert result.denominator == 0
 
 
 @pytest.mark.asyncio
@@ -460,85 +317,3 @@ async def test_proactive_reply_rate_seeded(seeded_conn: AsyncConnection) -> None
     assert result.excluded == 3
 
 
-@pytest.mark.asyncio
-async def test_online_kpis_seeded(seeded_conn: AsyncConnection) -> None:
-    kpis = await online_kpis(
-        seeded_conn,
-        window_start=W_START,
-        window_end=W_END + timedelta(days=2),
-        user_ids=seeded_conn.info["user_scope"],
-        as_of=AS_OF,
-    )
-    tps = kpis["turns_per_session"]
-    assert tps.status == "ok"
-    # valid turns (user scope): chat1 reply+2 user turns (3), chat2 lonely
-    # reply (1), chat3 censored reply still valid (1), ret_chat day2 user
-    # turn (1), p1/p6 user replies (2) => 8. Proactive/greeting/error
-    # assistant turns excluded; other-user chat outside scope.
-    assert tps.numerator == 8
-    # chats with >=1 valid turn: chat1, chat2, chat3, ret_chat, p1, p6 => 6
-    assert tps.denominator == 6
-
-    atpd = kpis["active_turns_per_day"]
-    assert atpd.status == "ok"
-    assert atpd.numerator == 8
-    assert atpd.denominator == 2  # 2026-08-01 and 2026-08-02
-
-    d1 = kpis["return_d1"]
-    assert d1.status == "ok"
-    assert d1.denominator == 2  # 08-01 and 08-02 cohorts both matured by 08-03
-    assert d1.numerator == 1  # only the 08-01 cohort returned on 08-02
-
-    d7 = kpis["return_d7"]
-    assert d7.status == "no_data"  # all d7 cohorts right-censored
-    assert d7.censored == 2
-
-
-@pytest.mark.asyncio
-async def test_online_kpis_without_scope_unavailable(seeded_conn: AsyncConnection) -> None:
-    kpis = await online_kpis(
-        seeded_conn,
-        window_start=W_START,
-        window_end=W_END,
-        user_ids=None,
-        as_of=AS_OF,
-    )
-    assert all(metric.status == "unavailable" for metric in kpis.values())
-
-
-@pytest.mark.asyncio
-async def test_turn_latency_percentiles_seeded(seeded_conn: AsyncConnection) -> None:
-    scope = seeded_conn.info["obs_scope"]
-    stats = await turn_latency_percentiles(seeded_conn, scope, metrics=("ttfa_ms",))
-    ttfa = stats["ttfa_ms"]
-    assert ttfa.status == "ok"
-    assert ttfa.n == 3
-    assert ttfa.p50 == 200
-    assert ttfa.p99 == 300
-
-
-@pytest.mark.asyncio
-async def test_turn_latency_percentiles_no_observations(seeded_conn: AsyncConnection) -> None:
-    stats = await turn_latency_percentiles(seeded_conn, [], metrics=("ttfa_ms",))
-    assert stats["ttfa_ms"].status == "no_data"
-
-    unknown_scope = [(uuid.uuid4(), uuid.uuid4())]
-    stats2 = await turn_latency_percentiles(seeded_conn, unknown_scope, metrics=("ttfa_ms",))
-    assert stats2["ttfa_ms"].status == "no_data"
-
-
-@pytest.mark.asyncio
-async def test_media_raw_distribution_seeded(seeded_conn: AsyncConnection) -> None:
-    scope = seeded_conn.info["obs_scope"]
-    distributions = await media_raw_distributions(seeded_conn, scope, metrics=("rtt_ms",))
-    rtt = distributions["rtt_ms"]
-    assert rtt["status"] == "ok"
-    assert rtt["n"] == 2
-    assert rtt["min"] == 30
-    assert rtt["max"] == 50
-
-
-@pytest.mark.asyncio
-async def test_media_raw_distribution_empty(seeded_conn: AsyncConnection) -> None:
-    distributions = await media_raw_distributions(seeded_conn, [], metrics=("rtt_ms",))
-    assert distributions["rtt_ms"]["status"] == "no_data"

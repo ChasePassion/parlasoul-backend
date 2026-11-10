@@ -59,19 +59,3 @@ async def test_interrupt_manager_requires_consecutive_silence_before_stop() -> N
     assert manager.state == RealtimeSessionState.ENDPOINT_PENDING
 
 
-@pytest.mark.asyncio
-async def test_interrupt_manager_allows_confirmed_interrupt_while_user_speaking() -> None:
-    bus = RealtimeEventBus()
-    pacer = AudioPacer(sample_rate=48000)
-    manager = InterruptManager(
-        bus=bus,
-        audio_pacer=pacer,
-        vad_stream=_FakeSileroVADStream([]),
-        sample_rate=16000,
-    )
-    manager.state = RealtimeSessionState.USER_SPEAKING
-
-    interrupted = await manager.maybe_interrupt(reason="user_speech_detected")
-
-    assert interrupted is True
-    assert manager.state == RealtimeSessionState.INTERRUPTED

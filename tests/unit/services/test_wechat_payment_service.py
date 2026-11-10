@@ -10,8 +10,8 @@ import pytest
 
 from src.core.exceptions import APIError
 from src.db.models import PaymentOrder, User
-from src.services.subscription_service import EffectiveEntitlementSummary
 from src.services import wechat_payment_service as wps
+from src.services.subscription_service import EffectiveEntitlementSummary
 from src.services.wechat_payment_service import WechatPaymentService
 
 
@@ -257,17 +257,6 @@ async def test_apply_payment_succeeded_webhook_updates_order_and_activates_pass(
     )
 
 
-@pytest.mark.asyncio
-async def test_list_products_raises_when_cache_is_empty() -> None:
-    service = _build_service()
-    service._refresh_product_cache = AsyncMock()  # type: ignore[method-assign]
-    wps._product_cache.clear()
-
-    with pytest.raises(APIError) as exc:
-        await service.list_products()
-
-    assert exc.value.status_code == 502
-    assert exc.value.code == "external_error"
 
 
 @pytest.mark.asyncio

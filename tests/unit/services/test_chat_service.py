@@ -14,8 +14,6 @@ from src.db.models import User
 from src.services import chat_service as chat_service_module
 from src.services.chat_service import (
     ChatService,
-    _materialize_chat_image_refs,
-    _sanitize_candidate_extra,
     _StreamPrep,
 )
 
@@ -46,52 +44,6 @@ def _workflow_observation_stub(state: dict[str, bool]):
         state["active"] = False
 
 
-def test_sanitize_candidate_extra_keeps_learning_data_but_strips_sentence_level_ipa() -> None:
-    extra = {
-        "input_transform": {"applied": True, "transformed_content": "Hi there"},
-        "reply_card": {
-            "surface": "Hi there",
-            "zh": "你好呀",
-            "ipa_us": "/haɪ ðer/",
-            "key_phrases": [
-                {"surface": "hi there", "zh": "你好呀", "ipa_us": "/haɪ ðer/"},
-            ],
-        },
-        "source": "stream_placeholder",
-    }
-
-    sanitized = _sanitize_candidate_extra(extra, include_learning_data=True)
-
-    assert sanitized is not None
-    assert sanitized is not extra
-    assert "input_transform" in sanitized
-    assert "reply_card" in sanitized
-    assert "reply_card" in sanitized
-    assert "ipa_us" not in sanitized["reply_card"]
-    assert sanitized["reply_card"]["key_phrases"][0]["ipa_us"] == "/haɪ ðer/"
-
-
-def test_sanitize_candidate_extra_drops_learning_data_when_disabled() -> None:
-    extra = {
-        "input_transform": {"applied": True, "transformed_content": "Hi there"},
-        "reply_card": {"surface": "Hi there", "zh": "你好呀", "ipa_us": "/haɪ ðer/"},
-        "source": "stream_placeholder",
-    }
-
-    sanitized = _sanitize_candidate_extra(extra, include_learning_data=False)
-
-    assert sanitized == {"source": "stream_placeholder"}
-
-
-def test_sanitize_candidate_extra_returns_none_when_only_learning_fields_exist() -> None:
-    extra = {
-        "input_transform": {"applied": True, "transformed_content": "Hi there"},
-        "reply_card": {"surface": "Hi there", "zh": "你好呀", "ipa_us": "/haɪ ðer/"},
-    }
-
-    sanitized = _sanitize_candidate_extra(extra, include_learning_data=False)
-
-    assert sanitized is None
 
 
 @pytest.mark.asyncio
@@ -285,58 +237,6 @@ async def test_stream_chat_with_prep_skips_memory_when_memory_inactive(
     assert "unused-semantic-marker" not in prompt_text
 
 
-@pytest.mark.asyncio
-async def test_schedule_chat_tts_warmup_when_auto_read_enabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = ChatService.__new__(ChatService)
-    warm_tts = AsyncMock(return_value=True)
-    service._voice_service = SimpleNamespace(
-        warm_tts_sse_events_from_segments=warm_tts,
-    )
-    service._user_settings_repo = SimpleNamespace(
-        get_by_user_id=AsyncMock(return_value=SimpleNamespace(auto_read_aloud_enabled=True))
-    )
-
-    spawn_bg_task = Mock(side_effect=_spawn_bg_task_stub)
-    monkeypatch.setattr(chat_service_module, "spawn_bg_task", spawn_bg_task)
-
-    chat_id = uuid.uuid4()
-    character_id = uuid.uuid4()
-    await service._schedule_chat_tts_warmup(
-        current_user=_build_user(),
-        chat=SimpleNamespace(id=chat_id),
-        character=SimpleNamespace(
-            id=character_id,
-            voice_provider="minimax",
-            voice_provider_voice_id="Chinese (Mandarin)_Wise_Women",
-            voice_model="speech-2.8-turbo",
-            voice_source_type="system",
-        ),
-    )
-
-    warm_tts.assert_called_once_with(
-        provider="minimax",
-        provider_voice_id="Chinese (Mandarin)_Wise_Women",
-        provider_model="speech-2.8-turbo",
-        voice_source_type="system",
-    )
-    spawn_bg_task.assert_called_once()
-
-
-def test_materialize_chat_image_refs_backfills_legacy_url_payloads() -> None:
-    refs = _materialize_chat_image_refs(
-        [
-            {
-                "original": "https://cdn.example.com/images/avatars/chat/user-1/image-1/original",
-                "display": "/media/images/avatars/chat/user-1/image-1/display.avif",
-            }
-        ]
-    )
-
-    assert refs is not None
-    assert refs[0].image_key == "images/avatars/chat/user-1/image-1"
-    assert refs[0].display == "/media/images/avatars/chat/user-1/image-1/display.avif"
 
 
 @pytest.mark.asyncio

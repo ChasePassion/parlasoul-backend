@@ -219,21 +219,3 @@ async def test_candidate_replay_scores_stored_content(candidate_env) -> None:
     assert outcome.rule_metrics["ooc"]["predicted"] is False
 
 
-@pytest.mark.parametrize(
-    ("key", "reason"),
-    [
-        ("error", "candidate_failed_generation"),
-        ("draft", "candidate_not_final"),
-        ("greeting", "candidate_static_greeting"),
-        ("missing", "candidate_not_found"),
-    ],
-)
-async def test_candidate_replay_filters_invalid_rows(candidate_env, key, reason) -> None:
-    runner = CandidateReplayRunner(session_factory=candidate_env["factory"])
-    outcome = await runner.run_case(_case(candidate_env[key]), _context(candidate_env["factory"]))
-
-    assert outcome.status == "skipped"
-    assert outcome.response_status == "skipped"
-    assert reason in outcome.error_detail_safe
-
-

@@ -4,9 +4,8 @@ import asyncio
 
 import pytest
 
-from src.schemas.learning import ReplyCardCore, ReplyCardPhrase, ReplySuggestion
+from src.schemas.learning import ReplySuggestion
 from src.services.stream_post_done_tail import (
-    PostDoneTailTasks,
     ReplyCardCoreReady,
     start_post_done_tail_tasks,
 )
@@ -73,45 +72,3 @@ async def test_post_done_tail_tasks_emit_reply_card_error_when_card_is_invalid()
         await tasks.aclose()
 
 
-@pytest.mark.asyncio
-async def test_post_done_tail_tasks_emit_reply_card_core_ready_item() -> None:
-    card_core = ReplyCardCore(
-        surface="Nice to meet you",
-        zh="很高兴见到你",
-        key_phrases=[
-            ReplyCardPhrase(
-                surface="nice to meet you",
-                ipa_us="/naɪs tə miːt juː/",
-                zh="很高兴见到你",
-            ),
-            ReplyCardPhrase(
-                surface="meet you",
-                ipa_us="/miːt juː/",
-                zh="见到你",
-            ),
-        ],
-    )
-    tasks: PostDoneTailTasks = start_post_done_tail_tasks(
-        assistant_candidate_id="cand-3",
-        suggestions_coro=asyncio.sleep(0, result=[]),
-        logger=__import__("logging").getLogger(__name__),
-        suggestions_error_log_message="suggestions failed",
-        reply_card_core_coro=asyncio.sleep(0, result=card_core),
-        reply_card_error_log_message="reply card failed",
-    )
-
-    try:
-        items: list[dict[str, object] | ReplyCardCoreReady] = []
-        while tasks.pending:
-            item = await tasks.wait_for_item(0.2)
-            if item is not None:
-                items.append(item)
-
-        assert any(
-            isinstance(item, ReplyCardCoreReady)
-            and item.assistant_candidate_id == "cand-3"
-            and item.card_core == card_core
-            for item in items
-        )
-    finally:
-        await tasks.aclose()

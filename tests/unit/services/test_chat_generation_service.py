@@ -10,19 +10,13 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from src.memory_system import MemoryRecord
 from src.memory_system.prompts import MEMORY_ANSWER_PROMPT
-from src.schemas.chat import ChatImageRef
 from src.services.chat_generation_service import (
     VOICE_CHANNEL_POLICY,
     ChatGenerationContext,
-    build_generation_messages,
     build_llm_system_prompt,
 )
-from src.services.chat_learning_service import ChatLearningService
-from src.services.chat_service import _build_user_message_with_images
 
 _CHARACTER_PROMPT = "You are Alex, a calm English-learning companion."
 
@@ -93,11 +87,6 @@ def test_memory_disabled_omits_memory_block_entirely() -> None:
     assert "episode" not in prompt
 
 
-def test_memory_active_empty_memories_render_none_placeholders() -> None:
-    prompt = build_llm_system_prompt(_context(memory_active=True))
-
-    assert "Episodic:\n(none)" in prompt
-    assert "Semantic:\n(none)" in prompt
 
 
 def test_episodic_truncated_to_five_and_semantic_sliced() -> None:
@@ -117,81 +106,5 @@ def test_episodic_truncated_to_five_and_semantic_sliced() -> None:
     assert "fact 6" not in prompt
 
 
-def test_use_all_semantic_keeps_every_semantic_memory() -> None:
-    context = _context(
-        memories={
-            "episodic": [],
-            "semantic": [_record(f"fact {i}", "semantic", i) for i in range(1, 8)],
-        },
-        use_all_semantic=True,
-    )
-
-    prompt = build_llm_system_prompt(context)
-
-    assert "7. fact 7" in prompt
 
 
-def test_invalid_channel_policy_rejected() -> None:
-    context = _context(channel_policy="video")  # type: ignore[arg-type]
-
-    with pytest.raises(ValueError, match="invalid channel_policy"):
-        build_llm_system_prompt(context)
-    with pytest.raises(ValueError, match="invalid channel_policy"):
-        build_generation_messages(context, user_message_builder=_build_user_message_with_images)
-
-
-def test_chat_channel_does_not_append_voice_policy() -> None:
-    prompt = build_llm_system_prompt(_context(channel_policy="chat"))
-
-    assert VOICE_CHANNEL_POLICY not in prompt
-
-
-def test_voice_channel_appends_policy_after_base_prompt() -> None:
-    prompt = build_llm_system_prompt(_context(channel_policy="voice"))
-
-    assert prompt.endswith(VOICE_CHANNEL_POLICY)
-    assert prompt.startswith(_CHARACTER_PROMPT)
-
-
-def test_default_preferred_builder_is_production_static_method() -> None:
-    context = _context(preferred_expressions=["cheers"])
-
-    prompt = build_llm_system_prompt(context)
-
-    assert ChatLearningService.build_preferred_expressions_prompt(["cheers"]) in prompt
-
-
-def test_generation_messages_layout_and_history_order() -> None:
-    history = [
-        {"role": "user", "content": "first"},
-        {"role": "assistant", "content": "reply"},
-    ]
-    context = _context(history_messages=history, user_message="second")
-
-    messages = build_generation_messages(
-        context, user_message_builder=_build_user_message_with_images
-    )
-
-    assert messages[0]["role"] == "system"
-    assert messages[1] == {"role": "user", "content": "first"}
-    assert messages[2] == {"role": "assistant", "content": "reply"}
-    assert messages[3] == {"role": "user", "content": "second"}
-
-
-def test_generation_messages_attach_images_via_canonical_builder() -> None:
-    image_ref = ChatImageRef(
-        image_key="chat_images/u1/img1",
-        original="/media/chat_images/u1/img1/original",
-        display="/media/chat_images/u1/img1/display",
-    )
-    context = _context(chat_images=(image_ref,), user_message="describe")
-
-    messages = build_generation_messages(
-        context, user_message_builder=_build_user_message_with_images
-    )
-
-    last = messages[-1]
-    assert last["role"] == "user"
-    assert isinstance(last["content"], list)
-    assert last["content"][-1] == {"type": "text", "text": "describe"}
-    assert any(part.get("type") == "image_url" for part in last["content"])

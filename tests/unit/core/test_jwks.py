@@ -46,11 +46,23 @@ def _create_token(
     return jwt.encode(payload, private_key, algorithm="EdDSA", headers=headers)
 
 
+@pytest.mark.parametrize(
+    ("token_kwargs", "expected_exception"),
+    [
+        ({}, None),
+        ({"audience": "http://localhost:9999"}, jwt.InvalidAudienceError),
+        ({"issuer": "http://localhost:9999"}, jwt.InvalidIssuerError),
+        ({"expires_delta": timedelta(minutes=-1)}, jwt.ExpiredSignatureError),
+    ],
+    ids=["valid", "wrong_audience", "wrong_issuer", "expired"],
+)
 @pytest.mark.asyncio
-async def test_verify_better_auth_jwt_accepts_valid_token(monkeypatch) -> None:
+async def test_verify_better_auth_jwt(
+    monkeypatch, token_kwargs: dict, expected_exception: type[Exception] | None
+) -> None:
     private_key = Ed25519PrivateKey.generate()
     public_key = private_key.public_key()
-    token = _create_token(private_key)
+    token = _create_token(private_key, **token_kwargs)
 
     clear_jwks_client_cache()
     monkeypatch.setattr(
@@ -58,74 +70,19 @@ async def test_verify_better_auth_jwt_accepts_valid_token(monkeypatch) -> None:
         lambda jwks_url: _StubJwksClient(public_key),
     )
 
-    payload = await verify_better_auth_jwt(
-        token,
-        jwks_url="http://localhost:3001/api/auth/jwks",
-        issuer="http://localhost:3001",
-        audience="http://localhost:3001",
-    )
-
-    assert payload["sub"] == "0d1c5303-20dd-4eb9-a68b-e7d30610f1c4"
-
-
-@pytest.mark.asyncio
-async def test_verify_better_auth_jwt_rejects_wrong_audience(monkeypatch) -> None:
-    private_key = Ed25519PrivateKey.generate()
-    public_key = private_key.public_key()
-    token = _create_token(private_key, audience="http://localhost:9999")
-
-    clear_jwks_client_cache()
-    monkeypatch.setattr(
-        "src.core.jwks.get_jwks_client",
-        lambda jwks_url: _StubJwksClient(public_key),
-    )
-
-    with pytest.raises(jwt.InvalidAudienceError):
-        await verify_better_auth_jwt(
+    if expected_exception is None:
+        payload = await verify_better_auth_jwt(
             token,
             jwks_url="http://localhost:3001/api/auth/jwks",
             issuer="http://localhost:3001",
             audience="http://localhost:3001",
         )
-
-
-@pytest.mark.asyncio
-async def test_verify_better_auth_jwt_rejects_wrong_issuer(monkeypatch) -> None:
-    private_key = Ed25519PrivateKey.generate()
-    public_key = private_key.public_key()
-    token = _create_token(private_key, issuer="http://localhost:9999")
-
-    clear_jwks_client_cache()
-    monkeypatch.setattr(
-        "src.core.jwks.get_jwks_client",
-        lambda jwks_url: _StubJwksClient(public_key),
-    )
-
-    with pytest.raises(jwt.InvalidIssuerError):
-        await verify_better_auth_jwt(
-            token,
-            jwks_url="http://localhost:3001/api/auth/jwks",
-            issuer="http://localhost:3001",
-            audience="http://localhost:3001",
-        )
-
-
-@pytest.mark.asyncio
-async def test_verify_better_auth_jwt_rejects_expired_token(monkeypatch) -> None:
-    private_key = Ed25519PrivateKey.generate()
-    public_key = private_key.public_key()
-    token = _create_token(private_key, expires_delta=timedelta(minutes=-1))
-
-    clear_jwks_client_cache()
-    monkeypatch.setattr(
-        "src.core.jwks.get_jwks_client",
-        lambda jwks_url: _StubJwksClient(public_key),
-    )
-
-    with pytest.raises(jwt.ExpiredSignatureError):
-        await verify_better_auth_jwt(
-            token,
-            jwks_url="http://localhost:3001/api/auth/jwks",
-            issuer="http://localhost:3001",
-            audience="http://localhost:3001",
-        )
+        assert payload["sub"] == "0d1c5303-20dd-4eb9-a68b-e7d30610f1c4"
+    else:
+        with pytest.raises(expected_exception):
+            await verify_better_auth_jwt(
+                token,
+                jwks_url="http://localhost:3001/api/auth/jwks",
+                issuer="http://localhost:3001",
+                audience="http://localhost:3001",
+            )

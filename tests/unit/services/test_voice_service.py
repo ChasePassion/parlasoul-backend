@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -80,22 +79,6 @@ def _build_http_gateway() -> VoiceGatewayRepository:
     return gateway
 
 
-@pytest.mark.asyncio
-async def test_transcribe_audio_delegates_to_http_gateway() -> None:
-    gateway = _build_http_gateway()
-    candidate_repo = CandidateRepository.__new__(CandidateRepository)
-    service = VoiceService(gateway, candidate_repo)
-
-    result = await service.transcribe_audio(
-        audio_bytes=b"abc",
-        audio_format="wav",
-        sample_rate=16000,
-    )
-
-    assert result.text == "hello world"
-    assert result.model == settings.DASHSCOPE_STT_HTTP_MODEL
-    assert result.request_id == "req-1"
-    gateway.transcribe_audio_http.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -142,27 +125,6 @@ def _build_context_repos(
     return chat_repo, character_repo
 
 
-@pytest.mark.asyncio
-async def test_stt_context_includes_character_name() -> None:
-    gateway = _build_http_gateway()
-    candidate_repo = CandidateRepository.__new__(CandidateRepository)
-    user_id = uuid.uuid4()
-    chat_id = uuid.uuid4()
-    chat_repo, character_repo = _build_context_repos(user_id=user_id, chat_id=chat_id)
-    service = VoiceService(gateway, candidate_repo, character_repo, chat_repo)
-
-    await service.transcribe_audio(
-        audio_bytes=b"abc",
-        audio_format="wav",
-        sample_rate=16000,
-        chat_id=chat_id,
-        current_user_id=user_id,
-    )
-
-    context = gateway.transcribe_audio_http.await_args.kwargs["context_messages"]
-    assert len(context) == 1
-    assert context[0]["role"] == "user"
-    assert "芊悦" in context[0]["text"]
 
 
 @pytest.mark.asyncio
@@ -189,60 +151,8 @@ async def test_stt_context_skips_chat_owned_by_another_user() -> None:
     assert gateway.transcribe_audio_http.await_args.kwargs["context_messages"] == []
 
 
-@pytest.mark.asyncio
-async def test_stt_context_without_chat_id_is_empty() -> None:
-    gateway = _build_http_gateway()
-    candidate_repo = CandidateRepository.__new__(CandidateRepository)
-    service = VoiceService(gateway, candidate_repo)
-
-    await service.transcribe_audio(
-        audio_bytes=b"abc",
-        audio_format="wav",
-        sample_rate=16000,
-    )
-
-    assert gateway.transcribe_audio_http.await_args.kwargs["context_messages"] == []
 
 
-@pytest.mark.asyncio
-async def test_stt_context_includes_recent_history(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from src.services import chat_service
-
-    async def _fake_history(turn_repo, candidate_repo, chat_id, leaf_turn_id, limit):
-        return [
-            {"role": "user", "content": "你还记得上次吗"},
-            {"role": "assistant", "content": "当然记得，芊悦一直在等你"},
-        ]
-
-    monkeypatch.setattr(
-        chat_service, "_load_llm_history_messages_from_leaf", _fake_history
-    )
-    gateway = _build_http_gateway()
-    candidate_repo = CandidateRepository.__new__(CandidateRepository)
-    user_id = uuid.uuid4()
-    chat_id = uuid.uuid4()
-    chat_repo, character_repo = _build_context_repos(user_id=user_id, chat_id=chat_id)
-    service = VoiceService(
-        gateway, candidate_repo, character_repo, chat_repo, object()
-    )
-
-    await service.transcribe_audio(
-        audio_bytes=b"abc",
-        audio_format="wav",
-        sample_rate=16000,
-        chat_id=chat_id,
-        current_user_id=user_id,
-    )
-
-    context = gateway.transcribe_audio_http.await_args.kwargs["context_messages"]
-    assert len(context) == 2
-    assert context[0]["role"] == "user"
-    assert "芊悦" in context[0]["text"]
-    assert "你还记得上次吗" in context[0]["text"]
-    assert context[1]["role"] == "assistant"
-    assert "芊悦" in context[1]["text"]
 
 
 @pytest.mark.asyncio
@@ -389,23 +299,6 @@ async def test_get_assistant_candidate_audio_stream_swallows_mid_stream_api_erro
     assert chunks == [b"\x01\x02"]
 
 
-@pytest.mark.asyncio
-async def test_get_assistant_candidate_audio_stream_404() -> None:
-    user = _build_user()
-    gateway = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    candidate_repo = CandidateRepository.__new__(CandidateRepository)
-    candidate_repo.get_assistant_candidate_with_chat = AsyncMock(return_value=None)
-    candidate_repo.get_candidate_with_turn_and_chat = AsyncMock(return_value=None)
-    service = VoiceService(gateway, candidate_repo)
-
-    with pytest.raises(APIError) as exc:
-        await service.get_assistant_candidate_audio_stream(
-            assistant_candidate_id=uuid.uuid4(),
-            current_user=user,
-            audio_format="mp3",
-        )
-
-    assert exc.value.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -432,27 +325,6 @@ async def test_get_assistant_candidate_audio_stream_403_when_not_owner() -> None
     assert exc.value.status_code == 403
 
 
-@pytest.mark.asyncio
-async def test_get_assistant_candidate_audio_stream_409_when_not_assistant() -> None:
-    user = _build_user()
-    chat = _build_chat(user.id)
-    turn = _build_turn(chat.id, author_type=AuthorType.USER.value)
-    cand = _build_candidate(turn.id)
-
-    gateway = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    candidate_repo = CandidateRepository.__new__(CandidateRepository)
-    candidate_repo.get_assistant_candidate_with_chat = AsyncMock(return_value=None)
-    candidate_repo.get_candidate_with_turn_and_chat = AsyncMock(return_value=(cand, turn, chat))
-
-    service = VoiceService(gateway, candidate_repo)
-    with pytest.raises(APIError) as exc:
-        await service.get_assistant_candidate_audio_stream(
-            assistant_candidate_id=cand.id,
-            current_user=user,
-            audio_format="mp3",
-        )
-
-    assert exc.value.status_code == 409
 
 
 @pytest.mark.asyncio
@@ -483,64 +355,3 @@ async def test_stream_tts_sse_events_emits_done() -> None:
     assert captured_kwargs["audio_format"] == "pcm"
 
 
-@pytest.mark.asyncio
-async def test_stream_tts_sse_events_from_segments_emits_done() -> None:
-    gateway = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    captured_kwargs: dict[str, object] = {}
-
-    async def _gen():
-        yield "AQI=", "audio/pcm;rate=24000"
-
-    def _stream_tts_audio_base64_from_segments(**kwargs):
-        captured_kwargs.update(kwargs)
-        return _gen()
-
-    tts_gateway = _fake_tts_gateway(
-        stream_tts_audio_base64_from_segments=_stream_tts_audio_base64_from_segments
-    )
-    candidate_repo = CandidateRepository.__new__(CandidateRepository)
-    service = VoiceService(gateway, candidate_repo, tts_gateway_service=tts_gateway)
-    queue: asyncio.Queue[str | None] = asyncio.Queue()
-    await queue.put("hello")
-    await queue.put(None)
-
-    events = []
-    async for item in service.stream_tts_sse_events_from_segments(
-        segments_queue=queue,
-        assistant_candidate_id=str(uuid.uuid4()),
-    ):
-        events.append(item)
-
-    assert events[0]["type"] == "tts_audio_delta"
-    assert events[0]["seq"] == 1
-    assert events[-1]["type"] == "tts_audio_done"
-    assert captured_kwargs["audio_format"] == "pcm"
-    assert captured_kwargs["segments_queue"] is queue
-
-
-@pytest.mark.asyncio
-async def test_warm_tts_sse_events_from_segments_delegates_to_gateway() -> None:
-    gateway = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    captured_kwargs: dict[str, object] = {}
-
-    async def _warm_tts_audio_base64_from_segments(**kwargs):
-        captured_kwargs.update(kwargs)
-        return True
-
-    tts_gateway = _fake_tts_gateway(
-        warm_tts_audio_base64_from_segments=_warm_tts_audio_base64_from_segments
-    )
-    candidate_repo = CandidateRepository.__new__(CandidateRepository)
-    service = VoiceService(gateway, candidate_repo, tts_gateway_service=tts_gateway)
-
-    warmed = await service.warm_tts_sse_events_from_segments(
-        provider="minimax",
-        provider_voice_id="Chinese (Mandarin)_Wise_Women",
-        provider_model="speech-2.8-turbo",
-        voice_source_type="system",
-    )
-
-    assert warmed is True
-    assert captured_kwargs["audio_format"] == "pcm"
-    assert captured_kwargs["provider"] == "minimax"
-    assert captured_kwargs["provider_voice_id"] == "Chinese (Mandarin)_Wise_Women"

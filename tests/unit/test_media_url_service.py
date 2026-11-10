@@ -1,3 +1,5 @@
+import pytest
+
 from src.schemas.media import MediaUploadKind
 from src.services.media_url_service import (
     build_chat_image_ref,
@@ -20,32 +22,20 @@ def test_validate_avatar_image_key_owner_accepts_matching_owner_and_kind() -> No
     )
 
 
-def test_validate_avatar_image_key_owner_rejects_wrong_owner() -> None:
+@pytest.mark.parametrize(
+    "key",
+    [
+        "images/avatars/characters/user-2/image-1",
+        "images/avatars/voices/user-1/image-1",
+        "images/avatars/characters/user-1/image-1/192.avif",
+        "images/avatars/characters/user-1/../image-1",
+    ],
+    ids=["wrong_owner", "wrong_kind", "variant_suffix", "traversal"],
+)
+def test_validate_avatar_image_key_owner_rejects_invalid_keys(key: str) -> None:
     assert (
         validate_avatar_image_key_owner(
-            "images/avatars/characters/user-2/image-1",
-            owner_id="user-1",
-            allowed_kinds=(MediaUploadKind.CHARACTER_AVATAR,),
-        )
-        is None
-    )
-
-
-def test_validate_avatar_image_key_owner_rejects_wrong_kind() -> None:
-    assert (
-        validate_avatar_image_key_owner(
-            "images/avatars/voices/user-1/image-1",
-            owner_id="user-1",
-            allowed_kinds=(MediaUploadKind.CHARACTER_AVATAR,),
-        )
-        is None
-    )
-
-
-def test_validate_avatar_image_key_owner_rejects_variant_or_traversal() -> None:
-    assert (
-        validate_avatar_image_key_owner(
-            "images/avatars/characters/user-1/image-1/192.avif",
+            key,
             owner_id="user-1",
             allowed_kinds=(MediaUploadKind.CHARACTER_AVATAR,),
         )
@@ -67,14 +57,6 @@ def test_public_media_object_key_accepts_discover_hero_images() -> None:
         is None
     )
     assert public_media_content_type("images/discover/heroes/elon-21-9.jpg") == "image/jpeg"
-    assert (
-        validate_avatar_image_key_owner(
-            "images/avatars/characters/user-1/../image-1",
-            owner_id="user-1",
-            allowed_kinds=(MediaUploadKind.CHARACTER_AVATAR,),
-        )
-        is None
-    )
 
 
 def test_normalize_chat_image_key_accepts_expected_prefix() -> None:

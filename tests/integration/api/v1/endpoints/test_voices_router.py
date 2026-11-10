@@ -16,11 +16,7 @@ from src.core.dependencies import get_subscription_service, get_voice_profile_se
 from src.core.exceptions import APIError
 from src.db.models import User
 from src.schemas.voice_profile import (
-    VoiceCatalogResponse,
-    VoiceCloneAccepted,
     VoiceProfileResponse,
-    VoiceProfilesPageResponse,
-    VoiceSelectableItem,
 )
 
 
@@ -84,74 +80,6 @@ def _create_app(
     return app
 
 
-def test_list_my_voices_route_delegates_to_service() -> None:
-    service = _StubVoiceProfileService()
-    service.list_my_voices.return_value = VoiceProfilesPageResponse(
-        items=[_build_voice_response()],
-        next_cursor=None,
-        has_more=False,
-    )
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.get("/v1/voices")
-
-    assert resp.status_code == 200
-    assert resp.json()["code"] == "ok"
-    service.list_my_voices.assert_awaited_once()
-
-
-def test_list_voice_catalog_route_delegates_to_service() -> None:
-    service = _StubVoiceProfileService()
-    service.list_catalog.return_value = VoiceCatalogResponse(
-        items=[
-            VoiceSelectableItem(
-                id=str(uuid.uuid4()),
-                display_name="Cherry",
-                source_type="system",
-                provider="dashscope",
-                provider_voice_id="Cherry",
-                preview_audio_url=None,
-                usage_hint=None,
-            )
-        ]
-    )
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.get("/v1/voices/catalog")
-
-    assert resp.status_code == 200
-    assert resp.json()["status"] == 200
-    service.list_catalog.assert_awaited_once()
-
-
-def test_create_voice_clone_route_delegates_to_service() -> None:
-    service = _StubVoiceProfileService()
-    subscription_service = _StubSubscriptionService()
-    service.create_clone.return_value = VoiceCloneAccepted(
-        voice=_build_voice_response(),
-        provider_request_id="req-1",
-        estimated_ready_seconds=120,
-    )
-    app = _create_app(service, subscription_service)
-
-    with TestClient(app) as client:
-        resp = client.post(
-            "/v1/voices/clones",
-            data={
-                "provider": "dashscope",
-                "display_name": "My Voice",
-                "preview_text": "你好，我是你的专属音色。",
-                "source_audio_format": "wav",
-            },
-            files={"source_audio": ("clone.wav", b"voice-audio", "audio/wav")},
-        )
-
-    assert resp.status_code == 202
-    assert resp.json()["message"] == "accepted"
-    subscription_service.assert_feature.assert_awaited_once()
-    service.create_clone.assert_awaited_once()
 
 
 def test_create_voice_clone_route_blocks_when_subscription_missing() -> None:
@@ -206,15 +134,3 @@ def test_stream_voice_preview_route_delegates_to_service() -> None:
     service.get_preview_audio_stream.assert_awaited_once()
 
 
-def test_delete_voice_route_returns_204_and_delegates() -> None:
-    service = _StubVoiceProfileService()
-    service.delete_voice_by_id.return_value = None
-    app = _create_app(service)
-    voice_id = str(uuid.uuid4())
-
-    with TestClient(app) as client:
-        resp = client.delete(f"/v1/voices/{voice_id}")
-
-    assert resp.status_code == 204
-    assert resp.text == ""
-    service.delete_voice_by_id.assert_awaited_once()

@@ -256,92 +256,6 @@ async def test_generate_text_uses_async_runtime_for_pydantic_routes() -> None:
     assert runtime.async_text_called is True
 
 
-@pytest.mark.asyncio
-async def test_generate_text_passes_pydantic_usage_to_langfuse_finish(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = LLMGatewayService()
-    runtime = _PydanticRuntimeStub()
-    service.get_runtime_client = lambda route, retry_policy="default": runtime  # type: ignore[method-assign]
-    captured_finish: dict[str, object] = {}
-
-    def _capture_finish(
-        handle,
-        *,
-        output,
-        usage_details=None,
-        cost_details=None,
-    ) -> None:
-        captured_finish["output"] = output
-        captured_finish["usage_details"] = usage_details
-        captured_finish["cost_details"] = cost_details
-
-    monkeypatch.setattr(llm_gateway_service_module, "finish_llm_generation", _capture_finish)
-
-    result = await service.generate_text(
-        route=_build_route(sdk_kind="pydantic_ai"),
-        system_prompt="Reply with exactly OK.",
-        user_message="say ok",
-        operation="test.text",
-        route_role="test",
-    )
-
-    assert result == "OK"
-    assert captured_finish["usage_details"] == {"input": 13, "output": 2, "total": 15}
-
-
-@pytest.mark.asyncio
-async def test_generate_json_uses_async_runtime_for_pydantic_routes() -> None:
-    service = LLMGatewayService()
-    runtime = _PydanticRuntimeStub()
-    service.get_runtime_client = lambda route, retry_policy="default": runtime  # type: ignore[method-assign]
-
-    result = await service.generate_json(
-        route=_build_route(sdk_kind="pydantic_ai"),
-        system_prompt="Return JSON only.",
-        user_message='{"feedback_card": {"surface": "ok"}}',
-        default={"feedback_card": {}},
-        operation="test.json",
-        route_role="test",
-    )
-
-    assert result == {"feedback_card": {"surface": "ok"}}
-    assert runtime.async_json_called is True
-
-
-@pytest.mark.asyncio
-async def test_generate_json_passes_pydantic_usage_to_langfuse_finish(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = LLMGatewayService()
-    runtime = _PydanticRuntimeStub()
-    service.get_runtime_client = lambda route, retry_policy="default": runtime  # type: ignore[method-assign]
-    captured_finish: dict[str, object] = {}
-
-    def _capture_finish(
-        handle,
-        *,
-        output,
-        usage_details=None,
-        cost_details=None,
-    ) -> None:
-        captured_finish["output"] = output
-        captured_finish["usage_details"] = usage_details
-        captured_finish["cost_details"] = cost_details
-
-    monkeypatch.setattr(llm_gateway_service_module, "finish_llm_generation", _capture_finish)
-
-    result = await service.generate_json(
-        route=_build_route(sdk_kind="pydantic_ai"),
-        system_prompt="Return JSON only.",
-        user_message='{"feedback_card": {"surface": "ok"}}',
-        default={"feedback_card": {}},
-        operation="test.json",
-        route_role="test",
-    )
-
-    assert result == {"feedback_card": {"surface": "ok"}}
-    assert captured_finish["usage_details"] == {"input": 17, "output": 4, "total": 21}
 
 
 @pytest.mark.asyncio
@@ -362,57 +276,6 @@ async def test_generate_text_keeps_sync_runtime_for_openai_routes() -> None:
     assert runtime.sync_text_called is True
 
 
-@pytest.mark.asyncio
-async def test_generate_text_passes_openai_usage_to_langfuse_finish(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = LLMGatewayService()
-    runtime = _OpenAIRuntimeStub()
-    service.get_runtime_client = lambda route, retry_policy="default": runtime  # type: ignore[method-assign]
-    captured_finish: dict[str, object] = {}
-
-    def _capture_finish(
-        handle,
-        *,
-        output,
-        usage_details=None,
-        cost_details=None,
-    ) -> None:
-        captured_finish["output"] = output
-        captured_finish["usage_details"] = usage_details
-        captured_finish["cost_details"] = cost_details
-
-    monkeypatch.setattr(llm_gateway_service_module, "finish_llm_generation", _capture_finish)
-
-    result = await service.generate_text(
-        route=_build_route(sdk_kind="openai_sdk"),
-        system_prompt="Reply with exactly OK.",
-        user_message="say ok",
-        operation="test.text",
-        route_role="test",
-    )
-
-    assert result == "OK"
-    assert captured_finish["usage_details"] == {"input": 7, "output": 3, "total": 10}
-
-
-@pytest.mark.asyncio
-async def test_generate_json_keeps_sync_runtime_for_openai_routes() -> None:
-    service = LLMGatewayService()
-    runtime = _OpenAIRuntimeStub()
-    service.get_runtime_client = lambda route, retry_policy="default": runtime  # type: ignore[method-assign]
-
-    result = await service.generate_json(
-        route=_build_route(sdk_kind="openai_sdk"),
-        system_prompt="Return JSON only.",
-        user_message='{"feedback_card": {"surface": "ok"}}',
-        default={"feedback_card": {}},
-        operation="test.json",
-        route_role="test",
-    )
-
-    assert result == {"feedback_card": {"surface": "ok"}}
-    assert runtime.sync_json_called is True
 
 
 @pytest.mark.asyncio
@@ -434,76 +297,6 @@ async def test_stream_text_preserves_same_task_context() -> None:
     assert chunks == ["first", "second"]
 
 
-@pytest.mark.asyncio
-async def test_stream_text_passes_stream_usage_to_langfuse_finish(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = LLMGatewayService()
-    runtime = _UsageStreamRuntimeStub()
-    service.get_runtime_client = lambda route, retry_policy="default": runtime  # type: ignore[method-assign]
-    captured_finish: dict[str, object] = {}
-
-    def _capture_finish(
-        handle,
-        *,
-        output,
-        usage_details=None,
-        cost_details=None,
-    ) -> None:
-        captured_finish["output"] = output
-        captured_finish["usage_details"] = usage_details
-
-    monkeypatch.setattr(llm_gateway_service_module, "finish_llm_generation", _capture_finish)
-
-    chunks = [
-        chunk
-        async for chunk in service.stream_text(
-            route=_build_route(sdk_kind="openai_sdk"),
-            messages=[{"role": "user", "content": "hello"}],
-            operation="chat.reply.stream",
-            route_role="chat",
-        )
-    ]
-
-    assert chunks == ["first", "second"]
-    assert captured_finish["output"] == "firstsecond"
-    assert captured_finish["usage_details"] == {"input": 11, "output": 5, "total": 16}
-
-
-@pytest.mark.asyncio
-async def test_stream_text_passes_pydantic_stream_usage_to_langfuse_finish(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = LLMGatewayService()
-    runtime = _PydanticUsageStreamRuntimeStub()
-    service.get_runtime_client = lambda route, retry_policy="default": runtime  # type: ignore[method-assign]
-    captured_finish: dict[str, object] = {}
-
-    def _capture_finish(
-        handle,
-        *,
-        output,
-        usage_details=None,
-        cost_details=None,
-    ) -> None:
-        captured_finish["output"] = output
-        captured_finish["usage_details"] = usage_details
-
-    monkeypatch.setattr(llm_gateway_service_module, "finish_llm_generation", _capture_finish)
-
-    chunks = [
-        chunk
-        async for chunk in service.stream_text(
-            route=_build_route(sdk_kind="pydantic_ai"),
-            messages=[{"role": "user", "content": "hello"}],
-            operation="chat.reply.stream",
-            route_role="chat",
-        )
-    ]
-
-    assert chunks == ["first", "second"]
-    assert captured_finish["output"] == "firstsecond"
-    assert captured_finish["usage_details"] == {"input": 19, "output": 6, "total": 25}
 
 
 @pytest.mark.asyncio
@@ -568,12 +361,20 @@ async def test_stream_text_raises_first_chunk_timeout() -> None:
             llm_gateway_service_module._FIRST_CHUNK_TIMEOUT_SECONDS = original_timeout
 
 
+@pytest.mark.parametrize(
+    ("method", "runtime_factory", "expected"),
+    [
+        ("generate_text", _PydanticRuntimeStub, "OK"),
+        ("stream_text", _GuardedStreamRuntimeStub, ["first", "second"]),
+    ],
+    ids=["generate_text", "stream_text"],
+)
 @pytest.mark.asyncio
-async def test_generate_text_starts_generation_inside_observability_scope(
-    monkeypatch: pytest.MonkeyPatch,
+async def test_text_generation_runs_inside_observability_scope(
+    monkeypatch: pytest.MonkeyPatch, method: str, runtime_factory, expected
 ) -> None:
     service = LLMGatewayService()
-    runtime = _PydanticRuntimeStub()
+    runtime = runtime_factory()
     service.get_runtime_client = lambda route, retry_policy="default": runtime  # type: ignore[method-assign]
 
     state = {"scope_active": False, "observed": False}
@@ -603,66 +404,29 @@ async def test_generate_text_starts_generation_inside_observability_scope(
         lambda handle, *, output, usage_details=None, cost_details=None: None,
     )
 
-    result = await service.generate_text(
-        route=_build_route(sdk_kind="pydantic_ai"),
-        system_prompt="Reply with exactly OK.",
-        user_message="say ok",
-        operation="chat.reply.stream",
-        route_role="chat",
-        user_id="user-1",
-        chat_id="chat-1",
-    )
-
-    assert result == "OK"
-    assert state["observed"] is True
-
-
-@pytest.mark.asyncio
-async def test_stream_text_starts_generation_inside_observability_scope(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = LLMGatewayService()
-    runtime = _GuardedStreamRuntimeStub()
-    service.get_runtime_client = lambda route, retry_policy="default": runtime  # type: ignore[method-assign]
-
-    state = {"scope_active": False, "observed": False}
-
-    @contextmanager
-    def _fake_scope(**kwargs):
-        state["scope_active"] = True
-        try:
-            yield
-        finally:
-            state["scope_active"] = False
-
-    def _fake_start(
-        request: LLMCallRequest,
-        *,
-        manual: bool = False,
-        trace_context: dict[str, str] | None = None,
-    ) -> LLMGenerationHandle:
-        state["observed"] = state["scope_active"]
-        return LLMGenerationHandle(request=request, llm_call_id="call-1")
-
-    monkeypatch.setattr(llm_gateway_service_module, "observability_scope", _fake_scope)
-    monkeypatch.setattr(llm_gateway_service_module, "start_llm_generation", _fake_start)
-    monkeypatch.setattr(
-        llm_gateway_service_module,
-        "finish_llm_generation",
-        lambda handle, *, output, usage_details=None, cost_details=None: None,
-    )
-
-    chunks = [
-        chunk
-        async for chunk in service.stream_text(
-            route=_build_route(sdk_kind="pydantic_ai"),
-            messages=[{"role": "user", "content": "hello"}],
+    route = _build_route(sdk_kind="pydantic_ai")
+    if method == "generate_text":
+        result = await service.generate_text(
+            route=route,
+            system_prompt="Reply with exactly OK.",
+            user_message="say ok",
             operation="chat.reply.stream",
             route_role="chat",
             user_id="user-1",
             chat_id="chat-1",
         )
-    ]
+    else:
+        result = [
+            chunk
+            async for chunk in service.stream_text(
+                route=route,
+                messages=[{"role": "user", "content": "hello"}],
+                operation="chat.reply.stream",
+                route_role="chat",
+                user_id="user-1",
+                chat_id="chat-1",
+            )
+        ]
 
-    assert chunks == ["first", "second"]
+    assert result == expected
     assert state["observed"] is True

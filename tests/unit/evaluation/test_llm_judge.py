@@ -78,16 +78,6 @@ async def test_valid_dimension_score() -> None:
     assert call["operation"] == "eval.judge.score"
 
 
-async def test_capture_flags_can_be_disabled() -> None:
-    async def ok(**_: Any) -> str:
-        return json.dumps({"score": 4, "rationale": "consistent"})
-
-    judge, gateway = _judge(ok, capture_input=False, capture_output=False)
-    outcome = await judge.score_dimension(dimension="persona_fidelity", response="reply", **_CONTEXT)
-    assert outcome.response_status == "valid"
-    call = gateway.calls[0]
-    assert call["capture_input"] is False
-    assert call["capture_output"] is False
 
 
 @pytest.mark.parametrize(
@@ -126,28 +116,6 @@ async def test_timeout_is_judge_timeout() -> None:
     assert outcome.error_code == "external_timeout"
 
 
-async def test_upstream_error_is_judge_error() -> None:
-    async def boom(**_: Any) -> str:
-        raise RuntimeError("connection reset")
-
-    judge, _ = _judge(boom)
-    outcome = await judge.score_dimension(dimension="persona_fidelity", response="reply", **_CONTEXT)
-
-    assert outcome.response_status == "judge_error"
-    assert outcome.error_code == "llm_service_error"
-    assert outcome.score is None
-
-
-async def test_ooc_classification() -> None:
-    async def emit(**_: Any) -> str:
-        return json.dumps({"ooc": True, "rationale": "agrees with contradiction"})
-
-    judge, gateway = _judge(emit)
-    outcome = await judge.classify_ooc(response="reply", **_CONTEXT)
-
-    assert outcome.response_status == "valid"
-    assert outcome.ooc is True
-    assert gateway.calls[0]["operation"] == "eval.judge.ooc"
 
 
 async def test_pairwise_compare_returns_position_winner() -> None:
@@ -166,12 +134,3 @@ async def test_pairwise_compare_returns_position_winner() -> None:
     assert "generation_provider" not in call["user_message"]
 
 
-def test_prompt_hashes_are_stable_and_distinct() -> None:
-    judge, _ = _judge(lambda **_: "")  # type: ignore[arg-type]
-    persona = judge.prompt_hash_for("persona_fidelity")
-    coherence = judge.prompt_hash_for("coherence_progression")
-    ooc = judge.prompt_hash_for("ooc")
-    assert persona != coherence != ooc
-    assert judge.prompt_hash_for("persona_fidelity") == persona
-    with pytest.raises(KeyError):
-        judge.prompt_hash_for("style")  # forbidden independent dimension

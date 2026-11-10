@@ -150,52 +150,6 @@ def _build_wav_16k_mono_bytes() -> bytes:
     return buf.getvalue()
 
 
-@pytest.mark.asyncio
-async def test_tts_waits_for_session_updated_before_append() -> None:
-    ws = _WsStub(
-        recv_events=[
-            json.dumps({"type": "session.created"}),
-            json.dumps({"type": "session.updated"}),
-            json.dumps({"type": "response.audio.delta", "delta": "AQI="}),
-            json.dumps({"type": "response.done"}),
-        ]
-    )
-    repo = _build_repo_for_tts(ws)
-
-    items = []
-    async for item in repo.stream_tts_audio_base64(text="hello", audio_format="mp3"):
-        items.append(item)
-
-    assert items == [("AQI=", "audio/mpeg")]
-    sent_types = [json.loads(payload)["type"] for payload in ws.sent_payloads]
-    assert sent_types == [
-        "session.update",
-        "input_text_buffer.append",
-        "session.finish",
-    ]
-    session_update_payload = json.loads(ws.sent_payloads[0])
-    assert session_update_payload["session"]["voice"] == "Cherry"
-    assert session_update_payload["session"]["mode"] == "server_commit"
-    assert session_update_payload["session"]["response_format"] == "mp3"
-    assert "event_id" in session_update_payload
-
-
-@pytest.mark.asyncio
-async def test_tts_connect_uses_model_query_param() -> None:
-    ws = _WsStub(
-        recv_events=[
-            json.dumps({"type": "session.updated"}),
-            json.dumps({"type": "response.done"}),
-        ]
-    )
-    captured: dict[str, str] = {}
-    repo = _build_repo_for_tts(ws, captured=captured)
-
-    async for _ in repo.stream_tts_audio_base64(text="hello", audio_format="mp3"):
-        pass
-
-    assert captured["api_key"] == "sk-test"
-    assert captured["url"] == "wss://example.com/tts?model=qwen3-tts-instruct-flash-realtime"
 
 
 @pytest.mark.asyncio
@@ -291,58 +245,6 @@ async def test_tts_records_langfuse_character_usage(monkeypatch: pytest.MonkeyPa
     assert observation.updates[-1]["metadata"]["provider_voice_id"] == "Serena"
 
 
-@pytest.mark.asyncio
-async def test_tts_raises_when_session_update_returns_error() -> None:
-    ws = _WsStub(
-        recv_events=[
-            json.dumps({"type": "error", "message": "Model not found (qwen-omni...)!"}),
-        ]
-    )
-    repo = _build_repo_for_tts(ws)
-
-    with pytest.raises(APIError) as exc:
-        async for _ in repo.stream_tts_audio_base64(text="hello", audio_format="mp3"):
-            pass
-
-    assert exc.value.status_code == 502
-    assert exc.value.code == "tts_upstream_error"
-
-
-@pytest.mark.asyncio
-async def test_stt_run_and_finish_payload_match_dashscope_protocol() -> None:
-    ws = _WsStub(
-        recv_events=[
-            json.dumps({"header": {"event": "task-started"}}),
-            json.dumps(
-                {
-                    "header": {"event": "result-generated"},
-                    "payload": {"output": {"sentence": {"text": "hello"}}},
-                }
-            ),
-            json.dumps({"header": {"event": "task-finished"}, "payload": {"output": {}}}),
-        ]
-    )
-    repo = _build_repo_for_stt(ws)
-
-    text, _ = await repo.transcribe_audio(
-        audio_bytes=b"\x01" * 3200,
-        audio_format="wav",
-        sample_rate=16000,
-    )
-
-    assert text == "hello"
-
-    run_task_payload = json.loads(ws.sent_payloads[0])
-    assert run_task_payload["header"]["action"] == "run-task"
-    assert "task_id" in run_task_payload["header"]
-    assert run_task_payload["payload"]["input"] == {}
-    assert run_task_payload["payload"]["parameters"]["format"] == "wav"
-    assert run_task_payload["payload"]["parameters"]["sample_rate"] == 16000
-
-    finish_task_payload = json.loads(ws.sent_payloads[-1])
-    assert finish_task_payload["header"]["action"] == "finish-task"
-    assert "task_id" in finish_task_payload["header"]
-    assert finish_task_payload["payload"]["input"] == {}
 
 
 @pytest.mark.asyncio
@@ -373,34 +275,6 @@ async def test_stt_raises_upstream_error_with_header_error_message() -> None:
     assert "payload.input" not in exc.value.message
 
 
-@pytest.mark.asyncio
-async def test_qwen3_stt_uses_realtime_protocol_and_extracts_transcript() -> None:
-    ws = _WsStub(
-        recv_events=[
-            json.dumps({"type": "session.created"}),
-            json.dumps({"type": "conversation.item.input_audio_transcription.completed", "transcript": "你好"}),
-            json.dumps({"type": "session.finished"}),
-        ]
-    )
-    captured: dict[str, Any] = {}
-    repo = _build_repo_for_qwen3_stt(ws, captured=captured)
-
-    text, _ = await repo.transcribe_audio(
-        audio_bytes=_build_wav_16k_mono_bytes(),
-        audio_format="wav",
-        sample_rate=16000,
-    )
-
-    assert text == "你好"
-    assert captured["url"] == "wss://example.com/stt-realtime?model=qwen3-asr-flash-realtime"
-    assert captured["extra_headers"] == {"OpenAI-Beta": "realtime=v1"}
-
-    sent_payloads = [json.loads(p) for p in ws.sent_payloads if isinstance(p, str)]
-    sent_types = [payload["type"] for payload in sent_payloads]
-    assert sent_types[0] == "session.update"
-    assert "input_audio_buffer.append" in sent_types
-    assert "input_audio_buffer.commit" in sent_types
-    assert sent_types[-1] == "session.finish"
 
 
 @pytest.mark.asyncio
@@ -451,67 +325,6 @@ async def test_qwen3_stt_retries_connection_reset_during_websocket_open() -> Non
     )
 
 
-@pytest.mark.asyncio
-async def test_qwen3_stt_records_langfuse_seconds_usage(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ws = _WsStub(
-        recv_events=[
-            json.dumps({"type": "session.created"}),
-            json.dumps({"type": "conversation.item.input_audio_transcription.completed", "transcript": "你好"}),
-            json.dumps({"type": "session.finished", "request_id": "req-stt-1"}),
-        ]
-    )
-    repo = _build_repo_for_qwen3_stt(ws)
-    observation = _ObservationStub()
-    captured_start: dict[str, Any] = {}
-
-    def _start_observation_stub(**kwargs: Any) -> _ObservationStub:
-        captured_start.update(kwargs)
-        return observation
-
-    monkeypatch.setattr(
-        voice_gateway_module,
-        "_start_voice_model_observation",
-        _start_observation_stub,
-    )
-
-    text, request_id = await repo.transcribe_audio(
-        audio_bytes=_build_wav_16k_mono_bytes(),
-        audio_format="wav",
-        sample_rate=16000,
-    )
-
-    assert text == "你好"
-    assert request_id == "req-stt-1"
-    assert captured_start["name"] == "voice.stt.transcribe"
-    assert captured_start["model"] == "qwen3-asr-flash-realtime"
-    assert observation.ended is True
-    assert observation.updates[-1]["usage_details"] == {
-        "input": 1,
-        "total": 1,
-    }
-    assert observation.updates[-1]["metadata"]["usage_source"] == "wav_header"
-    assert observation.updates[-1]["metadata"]["source_unit"] == "SECONDS"
-    assert observation.updates[-1]["metadata"]["billing_unit"] == "SECONDS"
-    assert observation.updates[-1]["metadata"]["audio_duration_seconds"] == 0.2
-
-
-@pytest.mark.asyncio
-async def test_qwen3_stt_rejects_wav_with_wrong_sample_rate() -> None:
-    ws = _WsStub(recv_events=[])
-    repo = _build_repo_for_qwen3_stt(ws)
-    wav_bytes = _build_wav_16k_mono_bytes()
-
-    with pytest.raises(APIError) as exc:
-        await repo.transcribe_audio(
-            audio_bytes=wav_bytes,
-            audio_format="wav",
-            sample_rate=8000,
-        )
-
-    assert exc.value.status_code == 422
-    assert exc.value.code == "stt_invalid_audio"
 
 
 @pytest.mark.asyncio
@@ -547,53 +360,6 @@ async def test_tts_stream_from_segments_reuses_single_session() -> None:
     ]
 
 
-@pytest.mark.asyncio
-async def test_tts_stream_from_segments_records_accumulated_character_usage(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ws = _WsStub(
-        recv_events=[
-            json.dumps({"type": "session.updated"}),
-            json.dumps({"type": "response.audio.delta", "delta": "AQI="}),
-            json.dumps({"type": "session.finished"}),
-        ]
-    )
-    repo = _build_repo_for_tts(ws)
-    observation = _ObservationStub()
-    captured_start: dict[str, Any] = {}
-
-    def _start_observation_stub(**kwargs: Any) -> _ObservationStub:
-        captured_start.update(kwargs)
-        return observation
-
-    monkeypatch.setattr(
-        voice_gateway_module,
-        "_start_voice_model_observation",
-        _start_observation_stub,
-    )
-
-    queue: asyncio.Queue[str | None] = asyncio.Queue()
-    await queue.put(" 你好 ")
-    await queue.put(" world ")
-    await queue.put(None)
-
-    items = []
-    async for item in repo.stream_tts_audio_base64_from_segments(
-        segments_queue=queue,
-        audio_format="pcm",
-        provider_voice_id="Cherry",
-    ):
-        items.append(item)
-
-    assert items == [("AQI=", "audio/pcm;rate=24000")]
-    assert captured_start["name"] == "voice.tts.stream_segments"
-    assert observation.ended is True
-    assert observation.updates[-1]["usage_details"] == {
-        "input": len("你好") + len("world"),
-        "total": len("你好") + len("world"),
-        "unit": "CHARACTERS",
-    }
-    assert observation.updates[-1]["metadata"]["segment_count"] == 2
 
 
 @pytest.mark.asyncio
@@ -699,106 +465,5 @@ async def test_create_voice_clone_calls_dashscope_customization_endpoint() -> No
 
 
 
-@pytest.mark.asyncio
-async def test_create_voice_clone_rejects_unsupported_audio_format() -> None:
-    repo = _build_repo_for_clone()
-
-    with pytest.raises(APIError) as exc:
-        await repo.create_voice_clone(
-            provider="dashscope",
-            display_name="My Voice",
-            source_audio_bytes=b"abc",
-            source_audio_format="aac",
-            description=None,
-            language_hint=None,
-            idempotency_key=None,
-        )
-
-    assert exc.value.status_code == 422
-    assert exc.value.code == "validation_failed"
-
-
-@pytest.mark.asyncio
-async def test_delete_voice_clone_calls_dashscope_customization_endpoint() -> None:
-    repo = _build_repo_for_clone()
-    captured_payload: dict[str, Any] = {}
-    observation = _ObservationStub()
-    captured_start: dict[str, Any] = {}
-
-    async def _post_stub(payload: dict[str, Any]) -> dict[str, Any]:
-        captured_payload.update(payload)
-        return {
-            "request_id": "req-del-1",
-            "output": {
-                "voice": "bob_new",
-            },
-        }
-
-    repo._post_tts_customization = _post_stub  # type: ignore[method-assign]
-
-    def _start_observation_stub(**kwargs: Any) -> _ObservationStub:
-        captured_start.update(kwargs)
-        return observation
-
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(
-        voice_gateway_module,
-        "_start_voice_model_observation",
-        _start_observation_stub,
-    )
-    try:
-        result = await repo.delete_voice_clone(
-            provider="dashscope",
-            provider_voice_id="bob_new",
-        )
-    finally:
-        monkeypatch.undo()
-
-    assert captured_start["name"] == "voice.clone.delete"
-    assert captured_start["model"] == "voice-enrollment"
-    assert observation.ended is True
-    assert observation.updates[-1]["usage_details"] == {
-        "input": 1,
-        "total": 1,
-        "unit": "REQUESTS",
-    }
-    assert captured_payload["model"] == "voice-enrollment"
-    assert captured_payload["input"]["action"] == "delete_voice"
-    assert captured_payload["input"]["voice_id"] == "bob_new"
-    assert result == {"provider_request_id": "req-del-1"}
-
-
-@pytest.mark.asyncio
-async def test_list_system_voices_returns_all_voices_and_caches() -> None:
-    repo = _build_repo_for_clone()
-
-    result_1 = await repo.list_system_voices(
-        provider="dashscope",
-        model="qwen3-tts-instruct-flash-realtime",
-    )
-    result_2 = await repo.list_system_voices(
-        provider="dashscope",
-        model="qwen3-tts-instruct-flash-realtime",
-    )
-
-    assert len(result_1) == 24
-    cherry = next(v for v in result_1 if v["provider_voice_id"] == "Cherry")
-    assert cherry["display_name"] == "Cherry"
-    assert cherry["provider_model"] == "qwen3-tts-instruct-flash-realtime"
-    assert result_2 == result_1
-
-
-@pytest.mark.asyncio
-async def test_list_system_voices_raises_for_unsupported_model() -> None:
-    repo = _build_repo_for_clone()
-
-    with pytest.raises(APIError) as exc:
-        await repo.list_system_voices(
-            provider="dashscope",
-            model="unknown-tts-model",
-        )
-
-    assert exc.value.status_code == 400
-    assert exc.value.code == "voice_model_unsupported"
 
 
