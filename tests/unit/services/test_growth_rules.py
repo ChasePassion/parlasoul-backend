@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from src.services.growth_rules import (
     advance_natural_signin,
     compute_streak_from_signed_dates,
@@ -20,9 +22,16 @@ def test_compute_streak_from_anchor_when_all_consecutive() -> None:
     assert compute_streak_from_signed_dates(dates, date(2026, 4, 4)) == 4
 
 
-def test_compute_streak_stops_at_first_gap() -> None:
-    dates = {date(2026, 4, 2), date(2026, 4, 3)}
-    assert compute_streak_from_signed_dates(dates, date(2026, 4, 3)) == 2
+@pytest.mark.parametrize(
+    ("dates", "anchor", "expected"),
+    [
+        ({date(2026, 4, 2), date(2026, 4, 3)}, date(2026, 4, 3), 2),
+        ({date(2026, 4, 1), date(2026, 4, 2)}, date(2026, 4, 4), 0),
+    ],
+    ids=["stops_at_first_gap", "anchor_not_in_set"],
+)
+def test_compute_streak_boundaries(dates: set[date], anchor: date, expected: int) -> None:
+    assert compute_streak_from_signed_dates(dates, anchor) == expected
 
 
 def test_compute_streak_with_mixed_natural_and_makeup_dates() -> None:
@@ -33,11 +42,6 @@ def test_compute_streak_with_mixed_natural_and_makeup_dates() -> None:
 def test_compute_streak_empty_set() -> None:
     dates: set[date] = set()
     assert compute_streak_from_signed_dates(dates, date(2026, 4, 5)) == 0
-
-
-def test_compute_streak_anchor_not_in_set() -> None:
-    dates = {date(2026, 4, 1), date(2026, 4, 2)}
-    assert compute_streak_from_signed_dates(dates, date(2026, 4, 4)) == 0
 
 
 def test_advance_natural_signin_grants_makeup_card_every_third_day() -> None:

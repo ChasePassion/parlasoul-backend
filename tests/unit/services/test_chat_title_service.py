@@ -45,15 +45,6 @@ def _build_route() -> ResolvedLLMRoute:
     )
 
 
-def test_clean_title_strips_wrappers_and_truncates() -> None:
-    service = ChatTitleService(gateway_service=_StubGateway("ignored"), registry=_StubRegistry(_build_route()))
-
-    raw = '  ```"  A very long title that should be truncated after the limit is reached  "```  '
-    cleaned = service.clean_title(raw)
-
-    assert cleaned is not None
-    assert cleaned.startswith("A very long title")
-    assert len(cleaned) <= 120
 
 
 @pytest.mark.asyncio

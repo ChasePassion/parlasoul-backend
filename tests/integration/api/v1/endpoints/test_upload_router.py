@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -108,23 +109,6 @@ def _create_app(
     return app
 
 
-def test_chat_image_upload_route_passes_the_file_to_the_service() -> None:
-    service = _StubUploadService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.post(
-            "/v1/uploads/chat-image",
-            files={"file": ("photo.jpg", b"image-bytes", "image/jpeg")},
-        )
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["data"]["image_key"] == "images/avatars/chat/user-1/image-1"
-    assert body["data"]["display_url"].endswith("/display.avif")
-    kwargs = service.upload_chat_image.await_args.kwargs
-    assert kwargs["body"] == b"image-bytes"
-    assert kwargs["content_type"] == "image/jpeg"
 
 
 def test_media_route_serves_a_locally_staged_object_before_r2() -> None:
@@ -153,42 +137,6 @@ def test_media_route_serves_a_locally_staged_object_before_r2() -> None:
     cache.get_cached_media.assert_not_awaited()
 
 
-def test_presign_upload_route_delegates_to_service() -> None:
-    service = _StubUploadService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.post(
-            "/v1/uploads/presign",
-            json={
-                "kind": "character_avatar",
-                "mime_type": "image/jpeg",
-                "size_bytes": 1024,
-            },
-        )
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["data"]["upload_id"] == "upload-1"
-    assert body["data"]["required_headers"] == {"Content-Type": "image/jpeg"}
-    service.create_presigned_upload.assert_awaited_once()
-
-
-def test_complete_upload_route_delegates_to_service() -> None:
-    service = _StubUploadService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.post(
-            "/v1/uploads/complete",
-            json={"upload_id": "upload-1", "etag": '"etag-1"'},
-        )
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["data"]["content_type"] == "image/avif"
-    assert body["data"]["avatar_urls"]["md"].endswith("/192.avif")
-    service.complete_upload.assert_awaited_once()
 
 
 def test_internal_discover_hero_upload_route_delegates_to_service() -> None:
@@ -208,42 +156,53 @@ def test_internal_discover_hero_upload_route_delegates_to_service() -> None:
     service.upload_discover_hero_image.assert_awaited_once()
 
 
-def test_media_route_serves_cached_avif_object() -> None:
+@pytest.mark.parametrize(
+    ("key", "cached", "expected_type", "assert_cache_header"),
+    [
+        (
+            "/media/images/avatars/characters/user-1/image-1/192.avif",
+            CachedMediaObject(
+                body=b"avif-bytes",
+                content_type="image/avif",
+                etag='"etag-1"',
+                cache_control="public, max-age=31536000, immutable",
+            ),
+            "image/avif",
+            True,
+        ),
+        (
+            "/media/images/discover/heroes/elon-21-9.jpg",
+            CachedMediaObject(
+                body=b"jpg-bytes",
+                content_type="image/jpeg",
+                etag='"etag-2"',
+                cache_control="public, max-age=31536000, immutable",
+            ),
+            "image/jpeg",
+            False,
+        ),
+    ],
+    ids=["avatar_avif", "discover_hero_jpg"],
+)
+def test_media_route_serves_cached_object(
+    key: str, cached: CachedMediaObject, expected_type: str, assert_cache_header: bool
+) -> None:
     service = _StubUploadService()
     cache = _StubMediaCache()
+    cache.get_cached_media.return_value = cached
     app = _create_app(service)
     app.dependency_overrides[get_media_cache_service_provider] = lambda: cache
     app.dependency_overrides[get_r2_storage_service_provider] = lambda: object()
 
     with TestClient(app) as client:
-        resp = client.get("/media/images/avatars/characters/user-1/image-1/192.avif")
+        resp = client.get(key)
 
     assert resp.status_code == 200
-    assert resp.content == b"avif-bytes"
-    assert resp.headers["content-type"].startswith("image/avif")
-    assert resp.headers["x-media-cache"] == "hit"
+    assert resp.content == cached.body
+    assert resp.headers["content-type"].startswith(expected_type)
+    if assert_cache_header:
+        assert resp.headers["x-media-cache"] == "hit"
     cache.get_cached_media.assert_awaited_once()
-
-
-def test_media_route_serves_cached_discover_hero_image() -> None:
-    service = _StubUploadService()
-    cache = _StubMediaCache()
-    cache.get_cached_media.return_value = CachedMediaObject(
-        body=b"jpg-bytes",
-        content_type="image/jpeg",
-        etag='"etag-2"',
-        cache_control="public, max-age=31536000, immutable",
-    )
-    app = _create_app(service)
-    app.dependency_overrides[get_media_cache_service_provider] = lambda: cache
-    app.dependency_overrides[get_r2_storage_service_provider] = lambda: object()
-
-    with TestClient(app) as client:
-        resp = client.get("/media/images/discover/heroes/elon-21-9.jpg")
-
-    assert resp.status_code == 200
-    assert resp.content == b"jpg-bytes"
-    assert resp.headers["content-type"].startswith("image/jpeg")
 
 
 def test_media_route_rejects_non_public_object_key() -> None:

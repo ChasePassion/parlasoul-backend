@@ -21,30 +21,32 @@ def _build_character_create(**overrides):
     return CharacterCreate(**payload)
 
 
-def test_character_create_rejects_tags_field() -> None:
+@pytest.mark.parametrize(
+    ("build", "payload"),
+    [
+        (_build_character_create, {"tags": ["photographer"]}),
+        (CharacterUpdate, {"tags": ["photographer"]}),
+        (CharacterUpdate, {"dialogue_style_id": "overpowered"}),
+    ],
+    ids=["create_tags", "update_tags", "update_dialogue_style"],
+)
+def test_character_schema_rejects_removed_fields(build, payload) -> None:
     with pytest.raises(ValidationError) as exc:
-        _build_character_create(tags=["photographer"])
+        build(**payload)
 
     assert exc.value.errors()[0]["type"] == "extra_forbidden"
 
 
-def test_character_update_rejects_tags_field() -> None:
-    with pytest.raises(ValidationError) as exc:
-        CharacterUpdate(tags=["photographer"])
-
-    assert exc.value.errors()[0]["type"] == "extra_forbidden"
-
-
-def test_character_create_accepts_llm_preset() -> None:
-    payload = _build_character_create(llm_preset_id="flagship")
-
-    assert payload.llm_preset_id == "flagship"
-
-
-def test_character_update_accepts_llm_preset() -> None:
-    payload = CharacterUpdate(llm_preset_id="free")
-
-    assert payload.llm_preset_id == "free"
+@pytest.mark.parametrize(
+    ("build", "payload", "expected"),
+    [
+        (_build_character_create, {"llm_preset_id": "flagship"}, "flagship"),
+        (CharacterUpdate, {"llm_preset_id": "free"}, "free"),
+    ],
+    ids=["create", "update"],
+)
+def test_character_schema_accepts_llm_preset(build, payload, expected) -> None:
+    assert build(**payload).llm_preset_id == expected
 
 
 def test_character_create_rejects_unknown_llm_preset() -> None:
@@ -60,10 +62,3 @@ def test_character_create_rejects_null_llm_preset() -> None:
         _build_character_create(llm_preset_id=None)
 
     assert exc.value.errors()[0]["type"] == "string_type"
-
-
-def test_character_update_rejects_removed_dialogue_style_field() -> None:
-    with pytest.raises(ValidationError) as exc:
-        CharacterUpdate(dialogue_style_id="overpowered")
-
-    assert exc.value.errors()[0]["type"] == "extra_forbidden"

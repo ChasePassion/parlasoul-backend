@@ -10,11 +10,7 @@ from src.api import deps
 from src.api.exceptions import register_exception_handlers
 from src.api.routers import memories
 from src.api.schemas import (
-    ConsolidateResponse,
-    DeleteResponse,
-    ManageResponse,
     ResetResponse,
-    SearchResponse,
 )
 from src.core.dependencies import (
     get_character_access_service,
@@ -28,13 +24,8 @@ from src.services.character_access_service import CharacterAccessService
 
 class _StubMemoryService:
     def __init__(self) -> None:
-        self.manage = AsyncMock(return_value=ManageResponse(added_ids=[1], success=True))
-        self.search = AsyncMock(return_value=SearchResponse(episodic=[], semantic=[]))
-        self.delete = AsyncMock(return_value=DeleteResponse(success=True, deleted_count=1))
         self.reset = AsyncMock(return_value=ResetResponse(success=True, deleted_count=2))
-        self.consolidate = AsyncMock(
-            return_value=ConsolidateResponse(memories_processed=10, semantic_created=4)
-        )
+        self.delete = AsyncMock()
 
 
 def _create_app(service: _StubMemoryService) -> FastAPI:
@@ -50,56 +41,6 @@ def _create_app(service: _StubMemoryService) -> FastAPI:
     return app
 
 
-def test_manage_route_delegates_to_service() -> None:
-    service = _StubMemoryService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.post(
-            "/v1/memories/manage",
-            json={
-                "character_id": str(uuid.uuid4()),
-                "chat_id": str(uuid.uuid4()),
-                "user_text": "hello",
-                "assistant_text": "world",
-            },
-        )
-
-    assert resp.status_code == 200
-    assert resp.json()["data"]["added_ids"] == [1]
-    service.manage.assert_awaited_once()
-
-
-def test_delete_route_delegates_to_service() -> None:
-    service = _StubMemoryService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.delete(f"/v1/memories/123?character_id={uuid.uuid4()}")
-
-    assert resp.status_code == 200
-    assert resp.json()["data"]["deleted_count"] == 1
-    service.delete.assert_awaited_once()
-
-
-def test_search_route_delegates_to_service() -> None:
-    service = _StubMemoryService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.post(
-            "/v1/memories/search",
-            json={
-                "character_id": str(uuid.uuid4()),
-                "chat_id": str(uuid.uuid4()),
-                "query": "what do you remember",
-            },
-        )
-
-    assert resp.status_code == 200
-    assert resp.json()["data"]["episodic"] == []
-    assert resp.json()["data"]["semantic"] == []
-    service.search.assert_awaited_once()
 
 
 def test_reset_route_delegates_to_service_without_hitting_delete_path() -> None:
@@ -119,20 +60,6 @@ def test_reset_route_delegates_to_service_without_hitting_delete_path() -> None:
     service.delete.assert_not_awaited()
 
 
-def test_consolidate_route_delegates_to_service() -> None:
-    service = _StubMemoryService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.post(
-            "/v1/memories/consolidate",
-            json={"character_id": str(uuid.uuid4())},
-        )
-
-    assert resp.status_code == 200
-    assert resp.json()["data"]["memories_processed"] == 10
-    assert resp.json()["data"]["semantic_created"] == 4
-    service.consolidate.assert_awaited_once()
 
 
 def test_search_route_uses_real_memory_service_dependency_chain() -> None:

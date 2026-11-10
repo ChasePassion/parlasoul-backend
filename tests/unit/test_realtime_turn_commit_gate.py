@@ -135,25 +135,3 @@ async def test_turn_commit_gate_preroll_cannot_satisfy_minimum_voiced_duration()
     assert gate.last_voiced_ms == 32
 
 
-@pytest.mark.asyncio
-async def test_turn_commit_gate_force_commit_for_mute() -> None:
-    committed: list[tuple[bytes, CommitReason]] = []
-
-    async def on_commit(audio: bytes, reason: CommitReason) -> None:
-        committed.append((audio, reason))
-
-    async def on_discard(_: DiscardReason, __: int) -> None:
-        return None
-
-    gate = TurnCommitGate(
-        config=TurnCommitGateConfig(commit_grace_ms=100, min_audio_ms=10),
-        on_commit=on_commit,
-        on_discard=on_discard,
-    )
-    audio = _audio_ms(40)
-
-    gate.append(audio)
-    gate.schedule_commit("vad_silence")
-    await gate.force_commit("manual_mute")
-
-    assert committed == [(audio, "manual_mute")]

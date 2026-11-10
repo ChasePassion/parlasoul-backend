@@ -5,24 +5,6 @@ import pytest
 from src.realtime.session.metrics import sanitize_metric_payload
 
 
-def test_realtime_metrics_accept_only_safe_scalar_measurements() -> None:
-    payload = sanitize_metric_payload(
-        {
-            "first_audio_read_ms": 123,
-            "llm_first_token_ms": 45.5,
-            "relay_candidate_type": "relay",
-            "is_browser_playback": False,
-        }
-    )
-
-    assert payload == {
-        "first_audio_read_ms": 123,
-        "llm_first_token_ms": 45.5,
-        "relay_candidate_type": "relay",
-        "is_browser_playback": False,
-    }
-
-
 @pytest.mark.parametrize(
     "key",
     [

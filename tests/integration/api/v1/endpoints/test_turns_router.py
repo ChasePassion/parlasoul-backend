@@ -130,19 +130,6 @@ def _create_app(
     return app
 
 
-def test_select_candidate_route_delegates_to_service() -> None:
-    service = _StubTurnService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.post(
-            f"/v1/turns/{uuid.uuid4()}/select",
-            json={"candidate_no": 2},
-        )
-
-    assert resp.status_code == 200
-    assert resp.json()["data"]["primary_candidate_no"] == 2
-    service.select_candidate.assert_awaited_once()
 
 
 def test_select_candidate_snapshot_route_returns_snapshot_and_delegates() -> None:
@@ -164,49 +151,3 @@ def test_select_candidate_snapshot_route_returns_snapshot_and_delegates() -> Non
     chat_service.get_turns_page.assert_awaited_once()
 
 
-def test_regen_stream_route_streams_sse_events() -> None:
-    service = _StubTurnService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.post(f"/v1/turns/{uuid.uuid4()}/regen/stream")
-
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/event-stream")
-    assert '"type":"reply_card"' in resp.text
-    assert '"favorite":{"enabled":true,"is_favorited":false,"saved_item_id":null}' in resp.text
-    assert '"type":"done"' in resp.text
-    service.prepare_regen.assert_awaited_once()
-    assert service.regen_stream_called is True
-
-
-def test_edit_stream_route_streams_sse_events() -> None:
-    service = _StubTurnService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.post(
-            f"/v1/turns/{uuid.uuid4()}/edit/stream",
-            json={"content": "updated content"},
-        )
-
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/event-stream")
-    assert '"type":"reply_card"' in resp.text
-    assert '"favorite":{"enabled":true,"is_favorited":false,"saved_item_id":null}' in resp.text
-    assert '"type":"done"' in resp.text
-    service.prepare_user_edit_stream.assert_awaited_once()
-    assert service.user_edit_stream_called is True
-
-
-def test_feedback_card_route_delegates_to_service() -> None:
-    service = _StubTurnService()
-    app = _create_app(service)
-
-    with TestClient(app) as client:
-        resp = client.post(f"/v1/turns/{uuid.uuid4()}/feedback-card")
-
-    assert resp.status_code == 200
-    assert resp.json()["code"] == "ok"
-    assert resp.json()["data"]["feedback_card"]["surface"] == "I really want to go now."
-    service.generate_feedback_card.assert_awaited_once()

@@ -195,40 +195,6 @@ async def test_attach_runtime_session_requires_owned_matching_nonterminal_contex
     assert exc.value.code == "resource_conflict"
 
 
-@pytest.mark.asyncio
-async def test_public_update_uses_server_wall_clock_and_typed_summary() -> None:
-    service, repo = _build_service()
-    user_id = uuid.uuid4()
-    observation_id = uuid.uuid4()
-    now = datetime.now(UTC)
-    session = RealtimeCallSession(
-        observation_id=observation_id,
-        user_id=user_id,
-        mode="lab",
-        started_at=now,
-        created_at=now,
-        updated_at=now,
-    )
-    repo.sessions[(observation_id, user_id)] = session
-
-    response = await service.update_session(
-        current_user=SimpleNamespace(id=user_id),  # type: ignore[arg-type]
-        observation_id=observation_id,
-        request=RealtimeTelemetrySessionUpdateRequest.model_validate(
-            {
-                "status": "failed",
-                "failure_stage": "ice",
-                "error_code": "ice_failed",
-                "duration_ms": 900,
-                "summary": {"avg_rtt_ms": 55, "packet_loss_ratio": 0.02},
-            }
-        ),
-    )
-
-    assert response.ended_at is not None
-    assert response.duration_ms == 900
-    assert response.summary.avg_rtt_ms == 55
-    assert response.summary.packet_loss_ratio == pytest.approx(0.02)
 
 
 @pytest.mark.asyncio

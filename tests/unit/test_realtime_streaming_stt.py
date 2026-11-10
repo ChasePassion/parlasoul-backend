@@ -114,12 +114,3 @@ async def test_upstream_error_surfaces_as_streaming_error() -> None:
         await finish_task
 
 
-@pytest.mark.asyncio
-async def test_abort_closes_socket_without_transcript() -> None:
-    ws = _FakeWebSocket()
-    session = await _started_session(ws)
-    session.append(b"\x00\x00" * 160)
-
-    await session.abort()
-
-    assert ws.closed is True

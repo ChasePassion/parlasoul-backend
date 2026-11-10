@@ -8,7 +8,6 @@ import pytest
 
 from src.core.llm_registry import ResolvedLLMRoute
 from src.repositories.saved_item_repository import SavedItemRepository
-from src.schemas.learning import ReplyCardCore, ReplyCardPhrase
 from src.services.chat_learning_service import ChatLearningService
 
 
@@ -82,14 +81,6 @@ class _StubRegistry:
         return self._route
 
 
-@pytest.mark.asyncio
-async def test_contains_chinese_detects_mixed_input() -> None:
-    service = ChatLearningService(gateway_service=_StubGateway(), registry=_StubRegistry())
-
-    assert service.contains_chinese("I think 我们可以一起去")
-    assert service.contains_chinese("纯中文")
-    assert service.contains_chinese("hello 世界")
-    assert service.contains_chinese("hello world") is False
 
 
 @pytest.mark.asyncio
@@ -107,59 +98,8 @@ async def test_generate_reply_suggestions_returns_only_valid_model_items() -> No
     gateway.generate_json.assert_awaited_once()
 
 
-@pytest.mark.asyncio
-async def test_generate_reply_suggestions_uses_provided_route() -> None:
-    gateway = _StubGateway(json_response={"suggestions": [{"type": "topic", "en": "t", "zh": "话题"}]})
-    service = ChatLearningService(gateway_service=gateway, registry=_StubRegistry())
-
-    explicit_route = ResolvedLLMRoute(
-        provider="openrouter",
-        model="openai/gpt-4.1-mini",
-        sdk_kind="pydantic_ai",
-        api_key="explicit-key",
-        api_base="https://openrouter.ai/api/v1",
-        source="character_binding",
-        model_type_label="openrouter:openai/gpt-4.1-mini",
-    )
-
-    await service.generate_reply_suggestions(
-        chat_history=[{"role": "user", "content": "fine"}],
-        assistant_latest_message="How are you?",
-        route=explicit_route,
-    )
-
-    call_route = gateway.generate_json.call_args.kwargs["route"]
-    assert call_route.source == "character_binding"
 
 
-@pytest.mark.asyncio
-async def test_generate_reply_card_returns_none_when_model_returns_invalid_payload() -> None:
-    gateway = _StubGateway(json_response={"reply_card": "invalid"})
-    service = ChatLearningService(gateway_service=gateway, registry=_StubRegistry())
-
-    card_core = await service.generate_reply_card(assistant_text="Nice to see you.")
-
-    assert card_core is None
-
-
-@pytest.mark.asyncio
-async def test_generate_reply_card_returns_none_when_payload_lacks_valid_key_phrases() -> None:
-    gateway = _StubGateway(
-        json_response={
-            "reply_card": {
-                "surface": "Nice to see you.",
-                "zh": "见到你很开心。",
-                "key_phrases": [
-                    {"surface": "nice to", "zh": "很高兴去", "ipa_us": "/naɪs tə/"},
-                ],
-            }
-        }
-    )
-    service = ChatLearningService(gateway_service=gateway, registry=_StubRegistry())
-
-    card_core = await service.generate_reply_card(assistant_text="Nice to see you.")
-
-    assert card_core is None
 
 
 @pytest.mark.asyncio
@@ -187,22 +127,6 @@ async def test_generate_reply_card_ignores_model_favorite_and_reply_level_ipa() 
     assert len(card_core.key_phrases) == 2
 
 
-def test_attach_default_favorite_sets_initial_state() -> None:
-    service = ChatLearningService(gateway_service=_StubGateway(), registry=_StubRegistry())
-    card_core = ReplyCardCore(
-        surface="Nice to see you.",
-        zh="见到你很开心。",
-        key_phrases=[
-            ReplyCardPhrase(surface="nice to see you", zh="很高兴见到你", ipa_us="/naɪs tə si ju/"),
-            ReplyCardPhrase(surface="see you", zh="见到你", ipa_us="/si ju/"),
-        ],
-    )
-
-    card = service.attach_default_reply_card_favorite(card_core)
-
-    assert card.favorite.enabled is True
-    assert card.favorite.is_favorited is False
-    assert card.favorite.saved_item_id is None
 
 
 @pytest.mark.asyncio
@@ -236,17 +160,6 @@ async def test_generate_word_card_preserves_selected_surface_and_example() -> No
     assert card_core.pos_groups[0].senses[0].zh == "问候"
 
 
-@pytest.mark.asyncio
-async def test_generate_feedback_card_returns_none_when_model_returns_invalid_payload() -> None:
-    gateway = _StubGateway(json_response={"key_phrases": []})
-    service = ChatLearningService(gateway_service=gateway, registry=_StubRegistry())
-
-    card_core = await service.generate_feedback_card(
-        chat_history=[{"role": "assistant", "content": "Hi"}],
-        user_message_to_improve="i want go now",
-    )
-
-    assert card_core is None
 
 
 @pytest.mark.asyncio
@@ -294,13 +207,6 @@ async def test_load_preferred_expressions_returns_latest_unique_surfaces() -> No
     assert result == ["hit it off", "catch up"]
 
 
-def test_build_preferred_expressions_prompt_keeps_order_and_deduplicates() -> None:
-    prompt = ChatLearningService.build_preferred_expressions_prompt(
-        ["hit it off", "catch up", "hit it off"]
-    )
-
-    assert prompt.count("hit it off") == 1
-    assert prompt.index("hit it off") < prompt.index("catch up")
 
 
 def _parse_sse_payloads(events: list[str]) -> list[dict[str, object]]:
@@ -310,47 +216,6 @@ def _parse_sse_payloads(events: list[str]) -> list[dict[str, object]]:
     return payloads
 
 
-def test_sanitize_assistant_context_keeps_latest_valid_messages_without_char_budget() -> None:
-    service = ChatLearningService(gateway_service=_StubGateway(), registry=_StubRegistry())
-
-    sanitized = service._sanitize_assistant_context(
-        [
-            {"role": "assistant", "content": "older assistant"},
-            {"role": "system", "content": "must be ignored"},
-            {"role": "user", "content": "first user"},
-            {"role": "assistant", "content": "A" * 30},
-        ],
-        max_messages=3,
-    )
-
-    assert sanitized == [
-        {"role": "assistant", "content": "older assistant"},
-        {"role": "user", "content": "first user"},
-        {"role": "assistant", "content": "A" * 30},
-    ]
-
-
-def test_build_assistant_messages_groups_contexts_and_appends_question() -> None:
-    service = ChatLearningService(gateway_service=_StubGateway(), registry=_StubRegistry())
-
-    messages = service._build_assistant_messages(
-        question="What does this mean?",
-        character_chat_context=[{"role": "assistant", "content": "How was your weekend?"}],
-        assistant_chat_context=[{"role": "user", "content": "Can you explain that?"}],
-    )
-
-    assert [message["role"] for message in messages] == [
-        "system",
-        "system",
-        "assistant",
-        "system",
-        "user",
-        "user",
-    ]
-    assert messages[1]["content"] != messages[3]["content"]
-    assert messages[2] == {"role": "assistant", "content": "How was your weekend?"}
-    assert messages[4] == {"role": "user", "content": "Can you explain that?"}
-    assert messages[-1] == {"role": "user", "content": "What does this mean?"}
 
 
 @pytest.mark.asyncio

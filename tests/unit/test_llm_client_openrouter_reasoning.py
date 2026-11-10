@@ -1,5 +1,6 @@
 import httpx
 import openai
+import pytest
 from pydantic_ai.usage import RequestUsage
 
 from src.memory_system.clients.llm import LLMClient, _ModelRoute
@@ -95,41 +96,28 @@ def test_extract_usage_details_supports_pydantic_ai_usage_names() -> None:
     }
 
 
-def test_safe_parse_json_extracts_object_after_think_block() -> None:
+@pytest.mark.parametrize(
+    ("response", "default", "expected"),
+    [
+        (
+            '<think>\nI should think first.\n</think>\n\n'
+            '{"feedback_card":{"surface":"Hello","zh":"你好","key_phrases":[]}}',
+            {"feedback_card": {}},
+            {"feedback_card": {"surface": "Hello", "zh": "你好", "key_phrases": []}},
+        ),
+        (
+            'Here is the JSON you asked for:\n'
+            '{"reply_card":{"surface":"Hi","zh":"你好","key_phrases":[]}}\n'
+            "Have a nice day.",
+            {"reply_card": {}},
+            {"reply_card": {"surface": "Hi", "zh": "你好", "key_phrases": []}},
+        ),
+    ],
+    ids=["after_think_block", "from_prose_response"],
+)
+def test_safe_parse_json_extracts_object(
+    response: str, default: dict, expected: dict
+) -> None:
     client = LLMClient(primary_model="demo-model", primary_api_key="test-key")
-    response = """
-<think>
-I should think first.
-</think>
 
-{"feedback_card":{"surface":"Hello","zh":"你好","key_phrases":[]}}
-""".strip()
-
-    parsed = client._safe_parse_json(response, default={"feedback_card": {}})
-
-    assert parsed == {
-        "feedback_card": {
-            "surface": "Hello",
-            "zh": "你好",
-            "key_phrases": [],
-        }
-    }
-
-
-def test_safe_parse_json_extracts_first_json_object_from_prose_response() -> None:
-    client = LLMClient(primary_model="demo-model", primary_api_key="test-key")
-    response = """
-Here is the JSON you asked for:
-{"reply_card":{"surface":"Hi","zh":"你好","key_phrases":[]}}
-Have a nice day.
-""".strip()
-
-    parsed = client._safe_parse_json(response, default={"reply_card": {}})
-
-    assert parsed == {
-        "reply_card": {
-            "surface": "Hi",
-            "zh": "你好",
-            "key_phrases": [],
-        }
-    }
+    assert client._safe_parse_json(response, default=default) == expected

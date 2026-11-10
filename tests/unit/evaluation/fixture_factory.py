@@ -155,29 +155,6 @@ def make_memory_case(
     return case
 
 
-def make_utility_pair(pair_id: str = "up-1", *, case_id_prefix: str = "mem-util") -> list[dict[str, Any]]:
-    snapshot = {
-        "episodic": [make_memory_item("m-util-1", "The user prefers jazz.")],
-        "semantic": [],
-    }
-    common = {
-        "dataset_id": DATASET_ID,
-        "dataset_version": DATASET_VERSION,
-        "split": "smoke",
-        "language": "en",
-        "character_id": None,
-        "character_ref": "character.synthetic.alex",
-        "character_snapshot": make_character_snapshot(),
-        "history_turns": [{"role": "user", "content": "Play some music?"}],
-        "user_message": "What music do I like?",
-        "input_transform_policy": "raw",
-        "task_type": "memory_utility_pair",
-        "memory_snapshot": snapshot,
-        "tags": [f"utility_pair:{pair_id}"],
-    }
-    on = dict(common, case_id=f"{case_id_prefix}-on", memory_active=True, expected_answer="Jazz.")
-    off = dict(common, case_id=f"{case_id_prefix}-off", memory_active=False, expected_answer=None)
-    return [on, off]
 
 
 def make_pairwise_case(
@@ -258,37 +235,6 @@ def make_annotation(
     }
 
 
-def make_consolidation_batch(batch_id: str = "consolidation-fixture-001") -> dict[str, Any]:
-    return {
-        "batch_id": batch_id,
-        "dataset_id": DATASET_ID,
-        "dataset_version": DATASET_VERSION,
-        "episodic_memories": [
-            make_memory_item("e-1", "The user likes jazz."),
-            make_memory_item("e-2", "The user likes jazz music."),
-        ],
-        "semantic_memories": [],
-        "expected_actions": [
-            {"action": "deduplicate", "source_memory_ids": ["e-1", "e-2"], "output_memory_id": "s-1"}
-        ],
-        "expected_outputs": [
-            {"memory_id": "s-1", "text": "The user likes jazz.", "memory_type": "semantic", "state": "created"}
-        ],
-        "expected_before": {
-            "episodic_count": 2,
-            "semantic_count": 0,
-            "physical_total_count": 2,
-            "logical_fact_count": 2,
-        },
-        "expected_after": {
-            "episodic_count": 2,
-            "semantic_count": 1,
-            "physical_total_count": 3,
-            "logical_fact_count": 1,
-        },
-        "expected_superseded": [],
-        "supporting_source_ids": ["e-1", "e-2"],
-    }
 
 
 REALTIME_SCENARIO: dict[str, Any] = {

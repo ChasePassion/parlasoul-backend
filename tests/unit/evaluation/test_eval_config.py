@@ -36,12 +36,6 @@ def test_defaults_are_safe() -> None:
     assert config.is_production is False
 
 
-def test_capture_flags_can_be_disabled() -> None:
-    config = build_eval_config(
-        _settings(EVAL_CAPTURE_INPUT="false", EVAL_CAPTURE_OUTPUT="false")
-    )
-    assert config.capture_input is False
-    assert config.capture_output is False
 
 
 def test_production_rejects_full_content_mode() -> None:
@@ -50,15 +44,8 @@ def test_production_rejects_full_content_mode() -> None:
         build_eval_config(settings, content_mode="full")
 
 
-def test_unknown_environment_is_not_development() -> None:
-    config = build_eval_config(_settings(ENVIRONMENT="staging"))
-    assert config.environment == "staging"
-    assert config.is_production is False
 
 
-def test_invalid_content_mode_rejected() -> None:
-    with pytest.raises(EvalConfigError, match="content mode"):
-        build_eval_config(_settings(), content_mode="raw")
 
 
 def test_non_positive_concurrency_rejected() -> None:

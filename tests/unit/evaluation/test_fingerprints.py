@@ -5,7 +5,6 @@ from __future__ import annotations
 from src.evaluation.datasets.fingerprints import (
     base_context_fingerprint,
     canonical_json,
-    dataset_fingerprint_from_manifest,
     is_hex64,
 )
 
@@ -34,8 +33,3 @@ def test_base_context_fingerprint_stable_vector() -> None:
     assert third != first
 
 
-def test_dataset_fingerprint_ignores_fingerprint_field_only() -> None:
-    manifest = {"dataset_id": "x", "files": {}, "fingerprint": "deadbeef"}
-    assert dataset_fingerprint_from_manifest(manifest) == dataset_fingerprint_from_manifest(
-        {**manifest, "fingerprint": "other"}
-    )

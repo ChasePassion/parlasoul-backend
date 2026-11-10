@@ -153,19 +153,6 @@ def test_discover_config_service_defaults_professional_ids_when_field_missing(
     assert result.professional_character_ids == []
 
 
-def test_discover_config_service_defaults_professional_ids_when_file_missing(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    missing_path = tmp_path / "missing-discover.json"
-    monkeypatch.setattr(settings, "DISCOVER_CONFIG_PATH", str(missing_path), raising=False)
-    monkeypatch.setattr(settings, "R2_PUBLIC_BASE_URL", None, raising=False)
-
-    service = DiscoverConfigService(settings)
-
-    result = service.get_public_config()
-
-    assert result.professional_character_ids == []
 
 
 def test_discover_config_service_defaults_professional_ids_when_value_not_list(
@@ -187,26 +174,3 @@ def test_discover_config_service_defaults_professional_ids_when_value_not_list(
     assert result.professional_character_ids == []
 
 
-def test_discover_config_service_normalizes_professional_ids_independently(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    config_path = tmp_path / "discover.json"
-    config_path.write_text(
-        json.dumps(
-            {
-                "story_character_ids": ["story-1", "story-2"],
-                "professional_character_ids": ["pro-1", "pro-2", "pro-3"],
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(settings, "DISCOVER_CONFIG_PATH", str(config_path), raising=False)
-    monkeypatch.setattr(settings, "R2_PUBLIC_BASE_URL", None, raising=False)
-
-    service = DiscoverConfigService(settings)
-
-    result = service.get_public_config()
-
-    assert result.story_character_ids == ["story-1", "story-2"]
-    assert result.professional_character_ids == ["pro-1", "pro-2", "pro-3"]

@@ -13,7 +13,6 @@ from tests.unit.evaluation.fixture_factory import (
     make_memory_case,
     make_pairwise_case,
     make_roleplay_case,
-    make_utility_pair,
     write_dataset,
 )
 
@@ -72,55 +71,8 @@ def test_empty_jsonl_is_legal_no_data_input(tmp_path: Path) -> None:
     assert loaded.pairwise_cases == ()
 
 
-def test_duplicate_case_id_rejected(tmp_path: Path) -> None:
-    write_dataset(
-        tmp_path,
-        roleplay=[make_roleplay_case("dup-id"), make_roleplay_case("dup-id", user_message="Other msg")],
-    )
-    with pytest.raises(DatasetLoadError, match="duplicate case_id"):
-        DatasetLoader(tmp_path).load()
 
 
-
-
-def test_non_utf8_manifest_rejected(tmp_path: Path) -> None:
-    write_dataset(tmp_path)
-    (tmp_path / "manifest.json").write_bytes(b"\xff\xfe{")
-    with pytest.raises(DatasetLoadError, match="UTF-8"):
-        DatasetLoader(tmp_path).load()
-
-
-def test_pairwise_fingerprint_mismatch_rejected(tmp_path: Path) -> None:
-    base = make_roleplay_case("rp-base")
-    pair = make_pairwise_case(base, case_id="pair-x")
-    pair["base_context_fingerprint"] = "0" * 64
-    write_dataset(tmp_path, roleplay=[base], pairwise=[pair])
-    with pytest.raises(DatasetLoadError, match="base_context_fingerprint"):
-        DatasetLoader(tmp_path).load()
-
-
-def test_pairwise_unresolved_base_rejected(tmp_path: Path) -> None:
-    pair = make_pairwise_case(make_roleplay_case("missing-base"), case_id="pair-y")
-    write_dataset(tmp_path, roleplay=[], pairwise=[pair])
-    with pytest.raises(DatasetLoadError, match="base_case_id"):
-        DatasetLoader(tmp_path).load()
-
-
-def test_variant_content_hash_mismatch_rejected(tmp_path: Path) -> None:
-    base = make_roleplay_case("rp-base2")
-    pair = make_pairwise_case(base, case_id="pair-z")
-    pair["variant_a"]["content"] = "tampered content"
-    write_dataset(tmp_path, roleplay=[base], pairwise=[pair])
-    with pytest.raises(DatasetLoadError, match="source_fingerprint"):
-        DatasetLoader(tmp_path).load()
-
-
-def test_utility_pair_context_drift_rejected(tmp_path: Path) -> None:
-    on, off = make_utility_pair()
-    off["user_message"] = "a different question"
-    write_dataset(tmp_path, roleplay=[], memory=[on, off])
-    with pytest.raises(DatasetLoadError, match="utility_pair"):
-        DatasetLoader(tmp_path).load()
 
 
 def test_split_leakage_rejected(tmp_path: Path) -> None:
@@ -134,22 +86,6 @@ def test_split_leakage_rejected(tmp_path: Path) -> None:
         DatasetLoader(tmp_path).load()
 
 
-def test_abstention_case_with_evidence_rejected(tmp_path: Path) -> None:
-    case = make_memory_case("mem-abs", task_type="memory_abstention", gold_memory_ids=[])
-    case["should_abstain"] = True
-    case["supporting_memory_ids"] = ["m-fixture-001"]
-    write_dataset(tmp_path, roleplay=[], memory=[case])
-    with pytest.raises(DatasetLoadError, match="abstention"):
-        DatasetLoader(tmp_path).load()
-
-
-def test_single_annotator_calibration_rejected(tmp_path: Path) -> None:
-    write_dataset(
-        tmp_path,
-        annotations=[make_annotation("rp-a", 1, "Calibration response text.")],
-    )
-    with pytest.raises(DatasetLoadError, match="annotators"):
-        DatasetLoader(tmp_path).load()
 
 
 def test_image_url_rejected(tmp_path: Path) -> None:

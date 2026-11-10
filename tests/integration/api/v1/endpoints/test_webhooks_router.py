@@ -7,6 +7,7 @@ import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -74,20 +75,42 @@ def _create_app(
     return app
 
 
-def test_dodo_subscription_webhook_accepts_valid_signature(
-    monkeypatch,
+@pytest.mark.parametrize(
+    ("path", "secret_attr", "payload", "target"),
+    [
+        (
+            "/v1/webhooks/dodo/subscriptions",
+            "DODO_PAYMENTS_SUBSCRIPTION_WEBHOOK_SECRET",
+            '{"type":"subscription.active","data":{"customer":{"customer_id":"cust_123"}}}',
+            "subscription_service",
+        ),
+        (
+            "/v1/webhooks/dodo/payments",
+            "DODO_PAYMENTS_PAYMENT_WEBHOOK_SECRET",
+            '{"type":"payment.succeeded","data":{"payment_id":"pay_123","metadata":{"order_id":"11111111-1111-1111-1111-111111111111"}}}',
+            "payment_service",
+        ),
+    ],
+    ids=["subscription", "payment"],
+)
+def test_dodo_webhook_accepts_valid_signature(
+    path: str, secret_attr: str, payload: str, target: str
 ) -> None:
     secret = "test-dodo-secret"
     webhook_id = "wh_123"
     webhook_timestamp = str(int(time.time()))
-    payload = '{"type":"subscription.active","data":{"customer":{"customer_id":"cust_123"}}}'
-    service = _build_service()
-    app = _create_app(service)
-    service._settings.DODO_PAYMENTS_SUBSCRIPTION_WEBHOOK_SECRET = secret
+    subscription_service = _build_service()
+    payment_service = _StubPaymentService()
+    app = _create_app(subscription_service, payment_service)
+    if target == "payment_service":
+        subscription_service._settings.DODO_PAYMENTS_SUBSCRIPTION_WEBHOOK_SECRET = (
+            "different-subscription-secret"
+        )
+    setattr(subscription_service._settings, secret_attr, secret)
 
     with TestClient(app) as client:
         resp = client.post(
-            "/v1/webhooks/dodo/subscriptions",
+            path,
             content=payload,
             headers={
                 "content-type": "application/json",
@@ -99,6 +122,7 @@ def test_dodo_subscription_webhook_accepts_valid_signature(
 
     assert resp.status_code == 200
     assert resp.json()["data"] == {"received": True}
+    service = subscription_service if target == "subscription_service" else payment_service
     service.apply_webhook_event.assert_awaited_once()
 
 
@@ -124,33 +148,3 @@ def test_dodo_subscription_webhook_rejects_invalid_signature(
     assert resp.status_code == 401
     assert resp.json()["code"] == "webhook_invalid_signature"
     service.apply_webhook_event.assert_not_awaited()
-
-
-def test_dodo_payment_webhook_accepts_valid_signature(
-    monkeypatch,
-) -> None:
-    secret = "test-dodo-secret"
-    webhook_id = "wh_pay_123"
-    webhook_timestamp = str(int(time.time()))
-    payload = '{"type":"payment.succeeded","data":{"payment_id":"pay_123","metadata":{"order_id":"11111111-1111-1111-1111-111111111111"}}}'
-    subscription_service = _build_service()
-    payment_service = _StubPaymentService()
-    app = _create_app(subscription_service, payment_service)
-    subscription_service._settings.DODO_PAYMENTS_SUBSCRIPTION_WEBHOOK_SECRET = "different-subscription-secret"
-    subscription_service._settings.DODO_PAYMENTS_PAYMENT_WEBHOOK_SECRET = secret
-
-    with TestClient(app) as client:
-        resp = client.post(
-            "/v1/webhooks/dodo/payments",
-            content=payload,
-            headers={
-                "content-type": "application/json",
-                "webhook-id": webhook_id,
-                "webhook-timestamp": webhook_timestamp,
-                "webhook-signature": _sign(secret, webhook_id, webhook_timestamp, payload),
-            },
-        )
-
-    assert resp.status_code == 200
-    assert resp.json()["data"] == {"received": True}
-    payment_service.apply_webhook_event.assert_awaited_once()

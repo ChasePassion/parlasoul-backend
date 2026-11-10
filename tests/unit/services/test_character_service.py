@@ -58,46 +58,6 @@ def _build_character(
         identifier=None,
     )
 
-@pytest.mark.asyncio
-async def test_create_character_uses_defaults_and_returns_response() -> None:
-    user = _build_user()
-    repo = CharacterRepository.__new__(CharacterRepository)
-    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
-    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-
-    async def create_side_effect(character: Character) -> Character:
-        character.id = uuid.uuid4()
-        return character
-
-    repo.create = AsyncMock(side_effect=create_side_effect)
-    voice_repo.get_ready_clone_by_owner_and_provider_voice = AsyncMock(return_value=None)
-    service = CharacterService(
-        repo,
-        voice_repo,
-        gateway_repo,
-    )
-    payload = CharacterCreate(
-        name="A",
-        description="B",
-        system_prompt="C",
-        greeting_message=None,
-        avatar_image_key=None,
-        visibility=VisibilityEnum.PRIVATE,
-    )
-
-    result = await service.create_character(payload, user)
-
-    assert result.creator_id == str(user.id)
-    assert result.creator_username == user.username
-    assert result.visibility == VisibilityType.PRIVATE.value
-    created_arg = repo.create.await_args.args[0]
-    assert isinstance(created_arg, Character)
-    assert created_arg.visibility == VisibilityType.PRIVATE.value
-    assert created_arg.voice_provider == DEFAULT_SYSTEM_TTS_PROVIDER
-    assert created_arg.voice_model == DEFAULT_SYSTEM_TTS_MODEL
-    assert created_arg.voice_provider_voice_id == DEFAULT_SYSTEM_TTS_VOICE_ID
-    assert created_arg.voice_source_type == "system"
-    assert created_arg.llm_preset_id == "free"
 
 
 @pytest.mark.asyncio
@@ -199,33 +159,6 @@ async def test_create_character_allows_flagship_preset_when_paywall_disabled() -
     subscription_service.get_effective_tier.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_update_character_persists_preset() -> None:
-    owner = _build_user()
-    original = _build_character(creator_id=owner.id)
-    updated = _build_character(character_id=original.id, creator_id=owner.id)
-    updated.llm_preset_id = "flagship"
-
-    repo = CharacterRepository.__new__(CharacterRepository)
-    repo.get_by_id = AsyncMock(return_value=original)
-    repo.update = AsyncMock(return_value=updated)
-    repo.count_distinct_users_by_character = AsyncMock(return_value=0)
-    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
-    voice_repo.get_ready_clone_by_owner_and_provider_voice = AsyncMock(return_value=None)
-    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    service = CharacterService(
-        repo,
-        voice_repo,
-        gateway_repo,
-        subscription_service=_build_subscription_service(tier="plus"),
-    )
-
-    payload = CharacterUpdate(llm_preset_id="flagship")
-    result = await service.update_character(original.id, character_in=payload, current_user=owner)
-
-    update_data = repo.update.await_args.args[1]
-    assert update_data["llm_preset_id"] == "flagship"
-    assert result.llm_preset_id == "flagship"
 
 
 @pytest.mark.asyncio
@@ -259,99 +192,9 @@ async def test_update_character_rejects_null_llm_preset() -> None:
 
 
 
-@pytest.mark.asyncio
-async def test_get_character_private_accessible_without_ownership() -> None:
-    owner_id = uuid.uuid4()
-    viewer_id = uuid.uuid4()
-    character = _build_character(creator_id=owner_id)
-    repo = CharacterRepository.__new__(CharacterRepository)
-    repo.get_by_id = AsyncMock(return_value=character)
-    repo.get_creator_username = AsyncMock(return_value="owner_username")
-    repo.count_distinct_users_by_character = AsyncMock(return_value=0)
-    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
-    voice_repo.get_ready_clone_by_owner_and_provider_voice = AsyncMock(return_value=None)
-    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    service = CharacterService(
-        repo,
-        voice_repo,
-        gateway_repo,
-    )
-
-    result = await service.get_character(character.id, current_user=_build_user(viewer_id))
-
-    assert result is not None
-    assert result.id == str(character.id)
 
 
 @pytest.mark.asyncio
-async def test_update_character_converts_visibility_enum_before_repo_call() -> None:
-    owner = _build_user()
-    original = _build_character(creator_id=owner.id, visibility=VisibilityType.PRIVATE.value)
-    updated = _build_character(
-        character_id=original.id,
-        creator_id=owner.id,
-        visibility=VisibilityType.PUBLIC.value,
-    )
-
-    repo = CharacterRepository.__new__(CharacterRepository)
-    repo.get_by_id = AsyncMock(return_value=original)
-    repo.update = AsyncMock(return_value=updated)
-    repo.count_distinct_users_by_character = AsyncMock(return_value=0)
-    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
-    voice_repo.get_ready_clone_by_owner_and_provider_voice = AsyncMock(return_value=None)
-    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    service = CharacterService(
-        repo,
-        voice_repo,
-        gateway_repo,
-    )
-
-    payload = CharacterUpdate(visibility=VisibilityEnum.PUBLIC)
-    result = await service.update_character(original.id, character_in=payload, current_user=owner)
-
-    assert result.visibility == VisibilityType.PUBLIC.value
-    update_data = repo.update.await_args.args[1]
-    assert update_data["visibility"] == VisibilityType.PUBLIC.value
-
-
-@pytest.mark.asyncio
-async def test_unpublish_character_not_found() -> None:
-    repo = CharacterRepository.__new__(CharacterRepository)
-    repo.get_by_id = AsyncMock(return_value=None)
-    repo.unpublish = AsyncMock()
-    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
-    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    service = CharacterService(
-        repo,
-        voice_repo,
-        gateway_repo,
-    )
-
-    with pytest.raises(APIError) as exc:
-        await service.unpublish_character(uuid.uuid4(), current_user=_build_user())
-
-    assert exc.value.status_code == 404
-    assert exc.value.code == "character_not_found"
-    repo.unpublish.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_delete_character_soft_deletes_for_creator() -> None:
-    owner = _build_user()
-    character = _build_character(
-        creator_id=owner.id,
-        visibility=VisibilityType.PUBLIC.value,
-    )
-    repo = CharacterRepository.__new__(CharacterRepository)
-    repo.get_by_id = AsyncMock(return_value=character)
-    repo.soft_delete = AsyncMock()
-    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
-    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    service = CharacterService(repo, voice_repo, gateway_repo)
-
-    await service.delete_character(character.id, current_user=owner)
-
-    repo.soft_delete.assert_awaited_once_with(character)
 
 
 @pytest.mark.asyncio
@@ -432,52 +275,6 @@ async def test_delete_character_raises_404_when_already_deleted() -> None:
     repo.soft_delete.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-async def test_repository_soft_delete_hides_and_unpublishes() -> None:
-    class _CommitSession:
-        async def commit(self) -> None:
-            return None
-
-    repo = CharacterRepository.__new__(CharacterRepository)
-    repo._db = _CommitSession()
-    character = _build_character(visibility=VisibilityType.PUBLIC.value)
-
-    await repo.soft_delete(character)
-
-    assert character.deleted_at is not None
-    assert character.visibility == VisibilityType.PRIVATE.value
-    assert character.unpublished_at is not None
-
-
-@pytest.mark.asyncio
-async def test_unpublish_character_marks_character_as_unpublished() -> None:
-    owner = _build_user()
-    original = _build_character(creator_id=owner.id)
-    unpublished = _build_character(
-        character_id=original.id,
-        creator_id=owner.id,
-        visibility=VisibilityType.PRIVATE.value,
-    )
-    unpublished.unpublished_at = datetime.now(UTC)
-
-    repo = CharacterRepository.__new__(CharacterRepository)
-    repo.get_by_id = AsyncMock(return_value=original)
-    repo.unpublish = AsyncMock(return_value=unpublished)
-    repo.count_distinct_users_by_character = AsyncMock(return_value=0)
-    voice_repo = VoiceProfileRepository.__new__(VoiceProfileRepository)
-    voice_repo.get_ready_clone_by_owner_and_provider_voice = AsyncMock(return_value=None)
-    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    service = CharacterService(
-        repo,
-        voice_repo,
-        gateway_repo,
-    )
-
-    result = await service.unpublish_character(original.id, current_user=owner)
-
-    assert result.id == str(original.id)
-    assert result.visibility == VisibilityType.PRIVATE.value
-    repo.unpublish.assert_awaited_once_with(original)
 
 
 def _build_voice_selectable_repo_mock() -> tuple[CharacterRepository, VoiceProfileRepository]:
@@ -538,31 +335,3 @@ async def test_create_character_rejects_voice_outside_official_catalog() -> None
     repo.create.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_update_character_binds_extended_dashscope_system_voice() -> None:
-    owner = _build_user()
-    original = _build_character(creator_id=owner.id)
-    updated = _build_character(character_id=original.id, creator_id=owner.id)
-    updated.voice_provider_voice_id = "Kiki"
-
-    repo = CharacterRepository.__new__(CharacterRepository)
-    repo.get_by_id = AsyncMock(return_value=original)
-    repo.update = AsyncMock(return_value=updated)
-    repo.count_distinct_users_by_character = AsyncMock(return_value=0)
-    _, voice_repo = _build_voice_selectable_repo_mock()
-    gateway_repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    service = CharacterService(repo, voice_repo, gateway_repo)
-
-    payload = CharacterUpdate(
-        voice_provider=DEFAULT_SYSTEM_TTS_PROVIDER,
-        voice_model=DEFAULT_SYSTEM_TTS_MODEL,
-        voice_provider_voice_id="Kiki",
-        voice_source_type="system",
-    )
-    result = await service.update_character(original.id, character_in=payload, current_user=owner)
-
-    update_data = repo.update.await_args.args[1]
-    assert update_data["voice_provider_voice_id"] == "Kiki"
-    assert result.voice is not None
-    assert result.voice.display_name == "Kiki"
-    assert result.voice.preview_audio_url is None

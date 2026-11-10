@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.core.config import (
     Settings,
     _normalize_asyncpg_database_url,
@@ -54,16 +56,16 @@ def test_database_connect_args_force_public_search_path_for_asyncpg() -> None:
     assert s.database_connect_args == {"server_settings": {"search_path": "public"}}
 
 
-def test_normalize_milvus_url_adds_port_443_for_https_without_port() -> None:
-    normalized = _normalize_milvus_url("https://zilliz.example.com")
-
-    assert normalized == "https://zilliz.example.com:443"
-
-
-def test_normalize_milvus_url_preserves_explicit_port() -> None:
-    normalized = _normalize_milvus_url("https://zilliz.example.com:19530")
-
-    assert normalized == "https://zilliz.example.com:19530"
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://zilliz.example.com", "https://zilliz.example.com:443"),
+        ("https://zilliz.example.com:19530", "https://zilliz.example.com:19530"),
+    ],
+    ids=["adds_443_when_port_missing", "preserves_explicit_port"],
+)
+def test_normalize_milvus_url(url: str, expected: str) -> None:
+    assert _normalize_milvus_url(url) == expected
 
 
 def test_llm_settings_resolve_provider_local_variables() -> None:

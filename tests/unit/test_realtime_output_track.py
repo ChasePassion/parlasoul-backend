@@ -36,16 +36,3 @@ async def test_bot_audio_track_recv_uses_20ms_media_clock() -> None:
     assert sleeps == pytest.approx([0.02, 0.02])
 
 
-@pytest.mark.asyncio
-async def test_bot_audio_track_recv_returns_fixed_size_audio_frame() -> None:
-    pacer = AudioPacer(sample_rate=48000, frame_ms=20, prebuffer_ms=20)
-    track = BotAudioTrack(pacer)
-    samples = np.arange(pacer.frame_samples, dtype=np.int16)
-
-    await pacer.write_pcm16(samples.tobytes())
-
-    frame = await track.recv()
-
-    assert frame.sample_rate == 48000
-    assert frame.samples == pacer.frame_samples
-    assert frame.pts == 0

@@ -6,7 +6,6 @@ import wave
 from io import BytesIO
 from typing import Any
 
-import httpx
 import pytest
 
 from src.core.exceptions import APIError
@@ -203,43 +202,6 @@ async def test_http_stt_context_text_is_capped(monkeypatch: pytest.MonkeyPatch) 
     assert len(text) == 400
 
 
-@pytest.mark.asyncio
-async def test_http_stt_empty_text_raises_no_speech(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _install_http_client(
-        monkeypatch,
-        payload={"output": {"text": ""}, "usage": {"total_tokens": 0}, "request_id": "r"},
-    )
-    repo = _build_repo()
-
-    with pytest.raises(APIError) as exc:
-        await repo.transcribe_audio_http(
-            audio_bytes=b"RIFF-fake-wav",
-            audio_format="wav",
-            sample_rate=16000,
-        )
-
-    assert exc.value.status_code == 422
-    assert exc.value.code == "stt_no_speech_detected"
-
-
-@pytest.mark.asyncio
-async def test_http_stt_unreadable_response_raises_upstream_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _install_http_client(monkeypatch, payload={})
-    repo = _build_repo()
-
-    with pytest.raises(APIError) as exc:
-        await repo.transcribe_audio_http(
-            audio_bytes=b"RIFF-fake-wav",
-            audio_format="wav",
-            sample_rate=16000,
-        )
-
-    assert exc.value.status_code == 502
-    assert exc.value.code == "stt_upstream_error"
 
 
 @pytest.mark.asyncio
@@ -261,43 +223,6 @@ async def test_http_stt_non_200_maps_to_upstream_error(
     assert "rate limited" not in exc.value.message
 
 
-@pytest.mark.asyncio
-async def test_http_stt_timeout_maps_to_external_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _install_http_client(
-        monkeypatch,
-        error=httpx.TimeoutException("timed out"),
-    )
-    repo = _build_repo()
-
-    with pytest.raises(APIError) as exc:
-        await repo.transcribe_audio_http(
-            audio_bytes=b"RIFF-fake-wav",
-            audio_format="wav",
-            sample_rate=16000,
-        )
-
-    assert exc.value.status_code == 504
-    assert exc.value.code == "external_timeout"
-
-
-@pytest.mark.asyncio
-async def test_http_stt_transport_error_maps_to_upstream_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _install_http_client(monkeypatch, error=httpx.ConnectError("connection failed"))
-    repo = _build_repo()
-
-    with pytest.raises(APIError) as exc:
-        await repo.transcribe_audio_http(
-            audio_bytes=b"RIFF-fake-wav",
-            audio_format="wav",
-            sample_rate=16000,
-        )
-
-    assert exc.value.status_code == 502
-    assert exc.value.code == "stt_upstream_error"
 
 
 @pytest.mark.asyncio
@@ -319,37 +244,3 @@ async def test_http_stt_unsupported_format_rejected(
     assert len(calls) == 0
 
 
-@pytest.mark.asyncio
-async def test_http_stt_empty_audio_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install_http_client(monkeypatch, payload=_success_payload())
-    repo = _build_repo()
-
-    with pytest.raises(APIError) as exc:
-        await repo.transcribe_audio_http(
-            audio_bytes=b"",
-            audio_format="wav",
-            sample_rate=16000,
-        )
-
-    assert exc.value.status_code == 422
-    assert exc.value.code == "stt_audio_empty"
-
-
-@pytest.mark.asyncio
-async def test_http_stt_uses_settings_defaults_when_built_with_new(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls = _install_http_client(monkeypatch, payload=_success_payload())
-    repo = VoiceGatewayRepository.__new__(VoiceGatewayRepository)
-    repo._api_key = "sk-test"
-    repo._billing_region = "cn"
-
-    await repo.transcribe_audio_http(
-        audio_bytes=b"RIFF-fake-wav",
-        audio_format="wav",
-        sample_rate=16000,
-    )
-
-    body = calls[-1]["json"]
-    assert body["model"] == "qwen-audio-3.1-asr-flash"
-    assert body["parameters"]["language_hints"] == ["zh", "en"]

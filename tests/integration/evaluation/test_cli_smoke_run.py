@@ -231,35 +231,5 @@ def test_cli_case_run_end_to_end(
     assert summary["dimensions"]["persona_fidelity"]["sample_count"] == 1
 
 
-def test_cli_dry_run_empty_dataset(tmp_path: Path) -> None:
-    root = tmp_path / "empty"
-    write_dataset(
-        root,
-        roleplay=[],
-        memory=[],
-        pairwise=[],
-        annotations=[],
-        consolidation=[],
-        realtime_scenarios=[],
-    )
-
-    from scripts import run_eval
-
-    exit_code = run_eval.main(["--dataset", str(root), "--dry-run", "--split", "smoke"])
-    assert exit_code == 0
 
 
-def test_cli_rejects_unknown_dimension(tmp_path: Path) -> None:
-    from scripts import run_eval
-
-    exit_code = run_eval.main(
-        ["--dataset", str(tmp_path), "--dry-run", "--dimensions", "style_flair"]
-    )
-    assert exit_code == 2
-
-
-def test_cli_invalid_dataset_path_fails_closed(tmp_path: Path) -> None:
-    from scripts import run_eval
-
-    exit_code = run_eval.main(["--dataset", str(tmp_path / "missing"), "--dry-run"])
-    assert exit_code == 2

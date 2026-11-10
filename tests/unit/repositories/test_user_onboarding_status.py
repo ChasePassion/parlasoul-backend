@@ -32,29 +32,22 @@ async def test_update_onboarding_status_allows_forward_transition() -> None:
     session.refresh.assert_awaited_once_with(user)
 
 
+@pytest.mark.parametrize(
+    ("initial_status", "requested_status"),
+    [("completed", "skipped"), ("discover_done", "discover_done")],
+    ids=["terminal_state", "same_status"],
+)
 @pytest.mark.asyncio
-async def test_update_onboarding_status_keeps_terminal_state() -> None:
-    user = _user(status="completed")
+async def test_update_onboarding_status_skips_terminal_or_unchanged(
+    initial_status: str, requested_status: str
+) -> None:
+    user = _user(status=initial_status)
     session = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
     repo = UserRepository(session)
 
-    updated = await repo.update_onboarding_status(user, status="skipped")
+    updated = await repo.update_onboarding_status(user, status=requested_status)
 
     assert updated is user
-    assert user.onboarding_status == "completed"
-    session.commit.assert_not_awaited()
-    session.refresh.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_update_onboarding_status_is_idempotent() -> None:
-    user = _user(status="discover_done")
-    session = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
-    repo = UserRepository(session)
-
-    updated = await repo.update_onboarding_status(user, status="discover_done")
-
-    assert updated is user
-    assert user.onboarding_status == "discover_done"
+    assert user.onboarding_status == initial_status
     session.commit.assert_not_awaited()
     session.refresh.assert_not_awaited()
