@@ -503,20 +503,10 @@ class CharacterForgeService:
         persisted = await self._repo.list_messages(session.id, limit=400)
         history = persisted[-settings.CHARACTER_FORGE_HISTORY_LIMIT :]
         llm_messages: list[dict[str, Any]] = []
-        loaded_skills: set[str] = set()
         for message in history:
             converted = _message_to_llm(message)
             if converted is not None:
                 llm_messages.append(converted)
-            if message.role != "tool" or message.tool_name != "load_skill":
-                continue
-            try:
-                payload = json.loads(message.content or "{}")
-            except json.JSONDecodeError:
-                continue
-            skill_name = payload.get("skill")
-            if payload.get("ok") and isinstance(skill_name, str):
-                loaded_skills.add(skill_name)
 
         active_character_payload = None
         if session.active_character_id:
@@ -543,7 +533,6 @@ class CharacterForgeService:
         tool_context = ToolContext(
             user=user,
             session=session,
-            loaded_skills=loaded_skills,
             reference_images=reference_images,
         )
         runtime = _runtime_for(session.id)

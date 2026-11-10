@@ -84,7 +84,6 @@ async def test_clone_voice_forwards_required_arguments() -> None:
     context = ToolContext(
         user=user,
         session=SimpleNamespace(id=uuid.uuid4(), active_character_id=None),
-        loaded_skills={"voice-clone"},
     )
     voices = _FakeVoiceProfiles()
 
@@ -112,7 +111,6 @@ async def test_create_character_accepts_a_cloned_voice() -> None:
     context = ToolContext(
         user=user,
         session=SimpleNamespace(id=uuid.uuid4(), active_character_id=None),
-        loaded_skills={"prompt-creation"},
     )
     voices = _FakeVoiceProfiles()
     characters = _FakeCharacterService()

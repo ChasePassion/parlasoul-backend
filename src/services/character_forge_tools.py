@@ -170,11 +170,8 @@ def build_tool_schemas(
             "function": {
                 "name": "load_skill",
                 "description": (
-                    "加载对应技能的完整技能说明。"
-                    "设计角色人设、编写 system_prompt 前必须先加载 prompt-creation；"
-                    "选择音色、调整参数或生成试听前必须先加载 voice-creation；"
-                    "克隆用户自己的声音前必须先加载 voice-clone；"
-                    "生成或更换头像前必须先加载 avatar-creation。"
+                    "加载对应技能的完整说明，获取字段约束、音色目录、文案模板与步骤指导。"
+                    "技能目录见系统提示词，按当前步骤按需加载。"
                 ),
                 "parameters": {
                     "type": "object",
@@ -487,16 +484,7 @@ class ToolOutcome:
 class ToolContext:
     user: User
     session: CharacterForgeSession
-    loaded_skills: set[str] = field(default_factory=set)
     reference_images: dict[str, str] = field(default_factory=dict)
-
-
-def _require_skill(context: ToolContext, name: str) -> ToolOutcome | None:
-    if name in context.loaded_skills:
-        return None
-    return _field_error(
-        [f"请先调用 load_skill 加载 {name} 技能，再执行这个操作。"]
-    )
 
 
 def _voice_summary(voice_id: str) -> dict[str, Any]:
@@ -792,7 +780,6 @@ class ForgeToolExecutor:
                     f"未知技能：{name}。可选技能：{', '.join(SKILL_NAMES)}。"
                 ]
             )
-        context.loaded_skills.add(skill.name)
         return ToolOutcome(
             llm_result={
                 "ok": True,
@@ -805,9 +792,6 @@ class ForgeToolExecutor:
     async def _preview_voice(
         self, arguments: dict[str, Any], context: ToolContext
     ) -> ToolOutcome:
-        missing = _require_skill(context, "voice-creation")
-        if missing is not None:
-            return missing
         base_voice_id = str(arguments.get("base_voice_id") or "").strip()
         if base_voice_id not in VOICE_CATALOG:
             return _field_error(
@@ -990,10 +974,6 @@ class ForgeToolExecutor:
     async def _clone_voice(
         self, arguments: dict[str, Any], context: ToolContext
     ) -> ToolOutcome:
-        missing = _require_skill(context, "voice-clone")
-        if missing is not None:
-            return missing
-
         audio_key, error = self._resolve_audio_key(arguments, context)
         if error is not None:
             return error
@@ -1070,9 +1050,6 @@ class ForgeToolExecutor:
     async def _generate_avatar(
         self, arguments: dict[str, Any], context: ToolContext
     ) -> ToolOutcome:
-        missing = _require_skill(context, "avatar-creation")
-        if missing is not None:
-            return missing
         prompt = str(arguments.get("prompt") or "").strip()
         if not (20 <= len(prompt) <= 1500):
             return _field_error(["prompt 需要 20-1500 个字符"])
@@ -1120,14 +1097,6 @@ class ForgeToolExecutor:
     async def _create_character(
         self, arguments: dict[str, Any], context: ToolContext
     ) -> ToolOutcome:
-        missing = _require_skill(context, "prompt-creation")
-        if missing is not None:
-            return missing
-        if context.session.active_character_id:
-            return _field_error(
-                ["当前会话已经有角色。请调用 update_character 修改，不要重复创建。"]
-            )
-
         voice, voice_error = await self._resolve_voice_for_character(
             arguments, context, required=True
         )
@@ -1214,9 +1183,6 @@ class ForgeToolExecutor:
     async def _update_character(
         self, arguments: dict[str, Any], context: ToolContext
     ) -> ToolOutcome:
-        missing = _require_skill(context, "prompt-creation")
-        if missing is not None:
-            return missing
         target = arguments.get("character_id") or context.session.active_character_id
         if not target:
             return _field_error(["当前会话还没有角色，无法修改。请先调用 create_character。"])

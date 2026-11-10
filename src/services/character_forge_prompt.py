@@ -28,7 +28,7 @@ def build_forge_system_prompt(
             f"{active_character.get('name', '')}"
             f"（character_id={active_character.get('id', '')}，"
             f"音色={active_character.get('voice_name', '')}）。"
-            "用户提出修改时使用 update_character，不要再创建新角色。"
+            "用户提出修改已有角色时使用 update_character。"
         )
     else:
         session_state = "当前会话还没有创建角色。"
@@ -92,7 +92,7 @@ ParlaSoul 是一个 AI 英语聊天学习产品：用户和角色对话来练英
 
 # 修改角色
 
-- 当前会话已有角色时，禁止再调用 `create_character`，一律用 `update_character`。
+- 修改已有角色时使用 `update_character`；用户想要另一个新角色时直接再调用 `create_character`。
 - `character_id` 取当前会话状态里的值，不需要用户提供。
 - 改声音：系统音色走 `voice-creation`，`preview_voice` 之后传新的 `voice_base_id` 和三个参数；克隆音色走 `voice-clone`，重新克隆后传新的 `voice_profile_id`。
 - 改人设：只传需要变的字段，没提到的字段保持原样。
